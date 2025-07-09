@@ -97,16 +97,16 @@ simulate_election <- function(num_voters, num_districts, num_ballots, num_groups
         }
     }
 
-	# Return results as a list
+    # Return results as a list
     to_return <- list(
         X = x_bc, # Votes per table × candidate
-        W = w_bg, # Votes per ballot box x group 
+        W = w_bg, # Votes per ballot box x group
         V = v_da, # District attributes
-        E = e_bd, # Assignation ballot box -> district 
-		P = p_dgc # Probability tensor district x group x candidate
+        E = e_bd, # Assignation ballot box -> district
+        P = p_dgc, # Probability tensor district x group x candidate
         beta = beta, # Bias matrix group x candidate
         alpha = alpha # Coefficientes of covariates per candidate
     )
-	class(to_return) <- "eip"
-	return(to_return)
+    class(to_return) <- "eip"
+    return(to_return)
 }

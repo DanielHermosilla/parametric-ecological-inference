@@ -33,8 +33,8 @@ run_em <- function(object = NULL,
                    W = NULL,
                    V = NULL,
                    json_path = NULL,
-                   method = "mult",
-                   initial_prob = "group_proportional",
+                   beta = NULL,
+                   lambda = NULL,
                    maxiter = 1000,
                    maxtime = 3600,
                    param_threshold = 0.001,
@@ -43,5 +43,38 @@ run_em <- function(object = NULL,
                    verbose = FALSE,
                    ...) {
     all_params <- lapply(as.list(match.call(expand.dots = TRUE)), eval, parent.frame())
-    .validate_compute(all_params) # nolint
+    # .validate_compute(all_params) # nolint
+
+    if (is.null(object)) {
+        object <- eim(X, W, V, json_path)
+    } else if (!inherits(object, "eip")) {
+        stop("run_em: The object must be initialized with the eip() function.")
+    }
+
+    num_candidates <- ncol(object$X)
+    num_groups <- ncol(object$W)
+    num_attributes <- ncol(object$V)
+    num_ballot_boxes <- nrow(object$X)
+
+    if (beta == NULL) {
+        beta <- matrix(0, nrow = num_groups, ncol = num_candidates - 1)
+    }
+    if (alpha == NULL) {
+        alpha <- matrix(0, nrow = num_candidates - 1, ncol = num_attributes)
+    }
+
+    resulting_values <- EMAlgorithmC(
+        object$X,
+        object$W,
+        object$V,
+        beta,
+        lambda,
+        maxiter,
+        maxtime,
+        param_threshold,
+        ll_threshold,
+        verbose,
+    )
+
+    print(resulting_values)
 }

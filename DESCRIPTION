@@ -1,11 +1,16 @@
 Package: paramei
 Title: What the Package Does (One Line, Title Case)
 Version: 0.0.0.9000
-Authors@R: 
-    person("First", "Last", , "first.last@example.com", role = c("aut", "cre"))
+Authors@R: c(person(given = "Charles", family = "Thraves", role = "aut"),
+             person(given = "Pablo", family = "Ubilla", role = "aut"),
+			 person(given = "Leonardo", family = "Meneses", role = "aut"),
+             person(given = "Daniel", family = "Hermosilla", role = c("aut", "cre"), email = "daniel.hermosilla.r@ug.uchile.cl"),
 Description: What the package does (one paragraph).
 License: `use_mit_license()`, `use_gpl3_license()` or friends to pick a
     license
 Encoding: UTF-8
+Imports:
+	Rcpp,
+	jsonlite
 Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.3.2

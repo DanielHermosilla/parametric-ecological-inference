@@ -32,6 +32,63 @@
 #endif
 #undef I
 
+// Calculates a D x G X C tensor with the probabilities of each district
+// If
+Matrix *getProbability(Matrix *X, Matrix *W, Matrix *V, Matrix *beta, Matrix *alpha)
+{
+
+    int D = V->rows;
+    int A = V->cols;
+    int Cminus1 = alpha->rows;
+    int C = Cminus1 + 1;
+    int G = beta->rows;
+
+    // ---- Generate needed matrices
+    Matrix *toReturn = Calloc(D, Matrix);
+    Matrix alphaTransposed = transposeMatrix(alpha);
+
+    // ---- Multiply V and alpha transposed
+    Matrix VxA = matrixMultiplication(V, &alphaTransposed);
+
+    // ---- Exponentiate
+    for (int d = 0; d < D; d++)
+    { // --- For each district
+        toReturn[d] = createMatrix(G, C);
+        for (int g = 0; g < G; g++)
+        { // --- For each group
+            double sum = 0.0;
+            for (int c = 0; c < Cminus1; c++)
+            { // --- For each candidate
+                // Obtain the exponential of the linear combination
+                double u = MATRIX_AT_PTR(beta, g, c) + MATRIX_AT(VxA, d, c);
+                double ex = exp(u);
+                MATRIX_AT(toReturn[d], g, c) = exp(u);
+                sum += ex;
+            }
+
+            // Base line candidate
+            MATRIX_AT(toReturn[d], g, Cminus1) = 1;
+            sum += 1;
+
+            for (int c = 0; c < C; c++)
+            { // --- For each candidate
+                // Normalize
+                MATRIX_AT(toReturn[d], g, c) /= sum;
+            }
+        }
+    }
+    // Free matrices
+    freeMatrix(&alphaTransposed);
+    freeMatrix(&VxA);
+    return toReturn; // Replace with actual return value
+}
+
+Matrix *E_step(Matrix *X, Matrix *W, Matrix *V, Matrix *beta, Matrix *alpha)
+{
+    // ---- Get the probabilities
+    Matrix *probabilities = getProbability(X, W, V, beta, alpha);
+}
+
 Matrix EM_Algorithm(Matrix *X, Matrix *W, Matrix *V, Matrix *beta, Matrix *alpha, const int maxiter,
                     const double maxtime, const double param_threshold, const double ll_threshold, const bool verbose)
 {

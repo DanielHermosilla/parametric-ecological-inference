@@ -11,6 +11,16 @@ extern "C"
 #include <stdlib.h>
 
     /**
+     * @brief Transposes a Matrix.
+     *
+     * @param[in] src  Pointer to the input Matrix.
+     * @return Matrix  A new Matrix of size (src->cols x src->rows) containing the transpose.
+     *
+     * @note Caller is responsible for freeing the returned matrix via freeMatrix().
+     */
+    Matrix transposeMatrix(const Matrix *src);
+
+    /**
      * @brief Make an array of a constant value.
      *
      * Given a value, it fills a whole array with a constant value.
@@ -519,6 +529,13 @@ extern "C"
      * @param[in] rowIndex The index where the new row should be added (0-based).
      */
     void addRowOfNaN(Matrix *matrix, int rowIndex);
+
+    /*
+     * @brief Multiplies two matrices.
+     *
+     * Calls BLAS under the hood to perform matrix multiplication.
+     */
+    Matrix matrixMultiplication(Matrix *m1, Matrix *m2);
 
 #ifdef __cplusplus
 }

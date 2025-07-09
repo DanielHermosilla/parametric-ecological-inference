@@ -43,7 +43,7 @@ simulate_election <- function(
     e_bd <- random_one_in_each_row(num_ballots, num_districts)
 
     # District & ballot-box attributes (if needed)
-    v_da <- matrix(rnorm(num_districts * num_attributes),
+    v_da <- matrix(runif(num_districts * num_attributes, min = 0, max = 1),
         nrow = num_districts, ncol = num_attributes
     )
     v_ba <- e_bd %*% v_da

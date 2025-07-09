@@ -31,24 +31,30 @@
 #define BLAS_INT int
 #endif
 /**
- * @brief Transpose from row-major -> column-major (or vice versa) into a separate buffer.
+ * @brief Transposes a Matrix.
  *
- * @param[in]  src   Pointer to the source matrix data
- * @param[in]  rows  Number of rows in the source
- * @param[in]  cols  Number of cols in the source
- * @param[out] dst   Pointer to the destination buffer (size rows*cols)
+ * @param[in] src  Pointer to the input Matrix.
+ * @return Matrix  A new Matrix of size (src->cols x src->rows) containing the transpose.
  *
- * After this, dst will hold the transpose of src.
+ * @note Caller is responsible for freeing the returned matrix via freeMatrix().
  */
-static void transposeMatrix(const double *src, int rows, int cols, double *dst)
+Matrix transposeMatrix(const Matrix *src)
 {
-    for (int r = 0; r < rows; r++)
+    checkMatrix(src);
+
+    // Allocate the transposed matrix
+    Matrix dst = createMatrix(src->cols, src->rows);
+
+    // Fill in transpose: dst[j,i] = src[i,j]
+    for (int i = 0; i < src->rows; ++i)
     {
-        for (int c = 0; c < cols; c++)
+        for (int j = 0; j < src->cols; ++j)
         {
-            dst[c * rows + r] = src[r * cols + c];
+            MATRIX_AT(dst, j, i) = MATRIX_AT_PTR(src, i, j);
         }
     }
+
+    return dst;
 }
 
 // ----------------------------------------------------------------------------
@@ -1375,4 +1381,42 @@ void addRowOfNaN(Matrix *matrix, int rowIndex)
         }
     }
     freeMatrix(&temp);
+}
+
+Matrix matrixMultiplication(const Matrix *m1, const Matrix *m2)
+{
+    // 1) sanity checks
+    checkMatrix(m1);
+    checkMatrix(m2);
+    if (m1->cols != m2->rows)
+    {
+        error("matrixMultiplication: incompatible dimensions (%dx%d) × (%dx%d)", m1->rows, m1->cols, m2->rows,
+              m2->cols);
+    }
+
+    // 2) output matrix dimensions
+    int M = m1->rows;
+    int K = m1->cols; // = m2->rows
+    int N = m2->cols;
+
+    // 3) create result (M × N)
+    Matrix C = createMatrix(M, N);
+
+    // 4) set up BLAS parameters
+    char transA = 'N'; // no transpose
+    char transB = 'N'; // no transpose
+    double alpha = 1.0, beta = 0.0;
+    BLAS_INT m = M;
+    BLAS_INT k = K;
+    BLAS_INT n = N;
+    BLAS_INT lda = m1->rows; // leading dimension of A
+    BLAS_INT ldb = m2->rows; // leading dimension of B
+    BLAS_INT ldc = C.rows;   // leading dimension of C
+    BLAS_INT inc = 1;
+
+    // 5) perform C = alpha * A %*% B + beta * C
+    F77_CALL(dgemm)
+    (&transA, &transB, &m, &n, &k, &alpha, m1->data, &lda, m2->data, &ldb, &beta, C.data, &ldc FCONE, FCONE);
+
+    return C;
 }

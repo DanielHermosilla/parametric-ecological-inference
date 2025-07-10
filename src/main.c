@@ -553,12 +553,15 @@ void M_step(Matrix *X, Matrix *W, Matrix *V, Matrix *q_bgc, Matrix *alpha, Matri
 
 Matrix *EM_Algorithm(Matrix *X, Matrix *W, Matrix *V, Matrix *beta, Matrix *alpha, const int maxiter,
                      const double maxtime, const double param_threshold, const double ll_threshold, const int maxnewton,
-                     const bool verbose)
+                     const bool verbose, double *out_elapsed, int *total_iterations)
 {
+    struct timespec t0, t1;
+    clock_gettime(CLOCK_MONOTONIC_RAW, &t0); // Start timer
     double current_ll = -DBL_MAX;
     double new_ll = -DBL_MAX;
     for (int iter = 0; iter < maxiter; iter++)
     {
+        *total_iterations += 1;
         Matrix *q_bgc = E_step(X, W, V, beta, alpha);
         M_step(X, W, V, q_bgc, alpha, beta, 0.001, maxnewton, verbose);
         Free(q_bgc);
@@ -580,6 +583,12 @@ Matrix *EM_Algorithm(Matrix *X, Matrix *W, Matrix *V, Matrix *beta, Matrix *alph
         }
         current_ll = new_ll;
     }
+    clock_gettime(CLOCK_MONOTONIC_RAW, &t1);
+
+    // Compute elapsed seconds
+    double sec = (double)(t1.tv_sec - t0.tv_sec);
+    double nsec = (double)(t1.tv_nsec - t0.tv_nsec) * 1e-9;
+    *out_elapsed = sec + nsec;
 
     Matrix *finalProbability = getProbability(V, beta, alpha);
     return finalProbability; // Return the final probabilities

@@ -1,4 +1,3 @@
-// El header del paquete, acá llamamos las funciones que pasarán a R
 #ifndef MAIN_H_EIM
 #define MAIN_H_EIM
 
@@ -11,8 +10,9 @@ extern "C"
 #include "globals.h"
 #include "utils_matrix.h"
 
-// ---- Define the structure to store the function pointer ---- //
-// ----  It is defined here since it's not used globally ----
+    Matrix *EM_Algorithm(Matrix *X, Matrix *W, Matrix *V, Matrix *beta, Matrix *alpha, const int maxiter,
+                         const double maxtime, const double param_threshold, const double ll_threshold,
+                         const int maxnewton, const bool verbose, double *out_elapsed, int *total_iterations);
 #ifdef __cplusplus
 }
 #endif

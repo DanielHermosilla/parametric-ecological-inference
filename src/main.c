@@ -32,12 +32,12 @@
 #endif
 #undef I
 
-// Calculates a D x G X C tensor with the probabilities of each district
+// Calculates a B x G X C tensor with the probabilities of each district
 // If
 Matrix *getProbability(Matrix *X, Matrix *W, Matrix *V, Matrix *beta, Matrix *alpha)
 {
 
-    int D = V->rows;
+    int B = V->rows;
     int A = V->cols;
     int Cminus1 = alpha->rows;
     int C = Cminus1 + 1;
@@ -85,11 +85,63 @@ Matrix *getProbability(Matrix *X, Matrix *W, Matrix *V, Matrix *beta, Matrix *al
 
 Matrix *E_step(Matrix *X, Matrix *W, Matrix *V, Matrix *beta, Matrix *alpha)
 {
+
+    int B = V->rows;
+    int A = V->cols;
+    int Cminus1 = alpha->rows;
+    int C = Cminus1 + 1;
+    int G = beta->rows;
+
     // ---- Get the probabilities
     Matrix *probabilities = getProbability(X, W, V, beta, alpha);
+
+    // ---- Get S_bc
+    Matrix S_bc = createMatrix(B, C);
+    double *W_row = (double *)Calloc(G, double);
+    double *S_row = (double *)Calloc(C, double);
+    for (int b = 0; b < B; b++)
+    { // --- For each ballot box
+      // Get the bth row of W
+        memcpy(W_row, &W->data[b * G], G * sizeof(double));
+
+        // Multiply
+        vectorMatrixMultiplication_inplace(W_row, &probabilities[b], S_row); // --- Length C
+
+        // Copy the output to S_bc matrix
+        memcpy(&S_bc.data[b * C], S_row, C * sizeof(double));
+    }
+    Free(W_row);
+    Free(S_row);
+
+    // ---- Get q_bgc
+    Matrix *q_bgc = Calloc(B, Matrix);
+
+    for (int b = 0; b < B; b++)
+    { // --- For each ballot box
+        q_bgc[b] = createMatrix(G, C);
+        for (int g = 0; g < G; g++)
+        { // --- For each group
+            double denominator = 0.0;
+            double values[C];
+            for (int c = 0; c < C; c++)
+            { // --- For each candidate
+                double n = MATRIX_AT(probabilities[b], g, c) * MATRIX_AT_PTR(X, b, c);
+                double d = MATRIX_AT(S_bc, b, c) - MATRIX_AT(probabilities[b], g, c);
+                double nd = n / d;
+                values[c] = nd;
+                denominator += nd;
+            }
+            for (int c = 0; c < C; c++) // --- For each candidate
+                MATRIX_AT(q_bgc[b], g, c) = values[c] / denominator;
+        }
+    }
+    freeMatrix(&S_bc);
+
+    return q_bgc;
 }
 
 Matrix EM_Algorithm(Matrix *X, Matrix *W, Matrix *V, Matrix *beta, Matrix *alpha, const int maxiter,
                     const double maxtime, const double param_threshold, const double ll_threshold, const bool verbose)
 {
+    Matrix *q_bgc = E_step(X, W, V, beta, alpha);
 }

@@ -537,6 +537,20 @@ extern "C"
      */
     Matrix matrixMultiplication(Matrix *m1, Matrix *m2);
 
+    /*
+     * @brief Does a vector-matrix multiplication.
+     *
+     */
+    double *vectorMatrixMultiplication(const double *v, const Matrix *M);
+
+    /// Performs out = v (1×G) × M (G×N) using BLAS DGEMV in‐place.
+    /// - v: pointer to vector of length G (row vector)
+    /// - M: pointer to Matrix struct of size G×N
+    /// - out: pre-allocated array of length N for the result
+    void vectorMatrixMultiplication_inplace(const double *v, const Matrix *M,
+                                            double *out // length = M->cols
+    );
+
 #ifdef __cplusplus
 }
 #endif

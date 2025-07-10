@@ -1420,3 +1420,78 @@ Matrix matrixMultiplication(const Matrix *m1, const Matrix *m2)
 
     return C;
 }
+
+double *vectorMatrixMultiplication(const double *v, const Matrix *M)
+{
+    // 1) Sanity checks
+    checkMatrix(M);
+    int G = M->rows;
+    int N = M->cols;
+    if (!v)
+    {
+        error("vectorMatrixMultiplication: input vector is NULL");
+    }
+
+    // 2) Allocate output
+    double *y = (double *)Calloc(N, double);
+    if (!y)
+    {
+        error("vectorMatrixMultiplication: failed to allocate output vector");
+    }
+
+    // 3) Set up BLAS parameters for y := alpha * Aᵀ %*% x + beta * y
+    //    with A = M (G×N), x = v (length G), y = result (length N)
+    char trans = 'T';       // use Aᵀ so dimensions match
+    BLAS_INT m = G;         // rows of A
+    BLAS_INT n = N;         // cols of A
+    BLAS_INT lda = M->rows; // leading dimension of A
+    BLAS_INT incx = 1;      // stride in x
+    BLAS_INT incy = 1;      // stride in y
+    double alpha = 1.0, beta = 0.0;
+
+    // 4) Call Fortran dgemv
+    F77_CALL(dgemv)
+    (&trans, // 'T'
+     &m,     // G
+     &n,     // N
+     &alpha,
+     M->data, // pointer to the G×N block
+     &lda,
+     v, // vector of length G
+     &incx, &beta,
+     y, // output vector of length N
+     &incy FCONE);
+
+    return y;
+}
+
+/// Performs out = v (1×G) × M (G×N) using BLAS DGEMV in‐place.
+/// - v: pointer to vector of length G (row vector)
+/// - M: pointer to Matrix struct of size G×N
+/// - out: pre-allocated array of length N for the result
+void vectorMatrixMultiplication_inplace(const double *v, const Matrix *M,
+                                        double *out // length = M->cols
+)
+{
+    // 1) Sanity check
+    checkMatrix(M);
+    int G = M->rows;
+    int N = M->cols;
+    if (v == NULL || out == NULL)
+    {
+        error("vectorMatrixMultiplication_inplace: NULL pointer received");
+    }
+
+    // 2) BLAS parameters for y := alpha * Aᵀ x + beta * y
+    //    with A = M (G×N), x = v (length G), y = out (length N)
+    char trans = 'T';       // use Aᵀ so dimensions match (N×G) × (G×1) → N×1
+    BLAS_INT m = G;         // rows of A
+    BLAS_INT n = N;         // cols of A
+    BLAS_INT lda = M->rows; // leading dimension of A in memory
+    BLAS_INT incx = 1;      // stride in x
+    BLAS_INT incy = 1;      // stride in y
+    double alpha = 1.0, beta = 0.0;
+
+    // 3) Call the Fortran DGEMV routine
+    F77_CALL(dgemv)(&trans, &m, &n, &alpha, M->data, &lda, v, &incx, &beta, out, &incy FCONE);
+}

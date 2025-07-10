@@ -557,6 +557,12 @@ extern "C"
      */
     double matrixDotProduct(const double *x, const double *y, int n);
 
+    /*
+     * Solves a linear system of equations H * v = g using Cholesky decomposition.
+     *
+     */
+    void solve_linear_system(int D, double *H, double *g, double *v);
+
 #ifdef __cplusplus
 }
 #endif

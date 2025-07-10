@@ -1424,3 +1424,21 @@ double matrixDotProduct(const double *x, const double *y, int n)
     BLAS_INT incy = 1;
     return F77_CALL(ddot)(&N, x, &incx, y, &incy);
 }
+
+void solve_linear_system(int D, double *H, double *g, double *v)
+{
+    // Copy g into v, since dgesv overwrites RHS
+    for (int i = 0; i < D; i++)
+        v[i] = -g[i];
+
+    // Allocate pivot array
+    int *ipiv = (int *)Calloc(D, int);
+    int info;
+    BLAS_INT N = D, NRHS = 1, LDA = D, LDB = D;
+    F77_CALL(dgesv)(&N, &NRHS, H, &LDA, ipiv, v, &LDB, &info);
+    if (info != 0)
+    {
+        error("DGESV failed with info = %d", info);
+    }
+    Free(ipiv);
+}

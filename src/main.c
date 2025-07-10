@@ -7,6 +7,7 @@
 #include <R_ext/RS.h> /* for R_Calloc/R_Free, F77_CALL */
 #include <Rinternals.h>
 #include <dirent.h>
+#include <float.h>
 #include <math.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -137,6 +138,7 @@ Matrix *E_step(Matrix *X, Matrix *W, Matrix *V, Matrix *beta, Matrix *alpha)
         freeMatrix(&probabilities[b]);
     }
     freeMatrix(&S_bc);
+    Free(probabilities);
     return q_bgc;
 }
 
@@ -177,11 +179,12 @@ double objective_function(Matrix *W, Matrix *V, Matrix *alpha, Matrix *beta, Mat
         }
         freeMatrix(&probabilities[b]);
     }
+    Free(probabilities);
     return loss;
 }
 
-void compute_gradients(const Matrix *W, Matrix *V, Matrix *alpha, Matrix *beta, Matrix *q_bgc, double lambda_alpha,
-                       double lambda_beta, int regularization, Matrix *grad_alpha_out, Matrix *grad_beta_out)
+void compute_gradients(const Matrix *W, Matrix *V, Matrix *alpha, Matrix *beta, Matrix *q_bgc, Matrix *grad_alpha_out,
+                       Matrix *grad_beta_out)
 {
     int B = V->rows;
     int A = V->cols;
@@ -306,15 +309,278 @@ void compute_hessian(const Matrix *W,     // B×G
     Free(p_bgc);
 }
 
-void M_step(Matrix *X, Matrix *W, Matrix *V, Matrix *q_bgc, Matrix *alpha, Matrix *beta, const double tol,
-            const int maxnewton)
+// ----- HELPER FUNCTION ----- //
+// Packs grad_alpha (C-1×A) and grad_beta (G×(C-1)) into a vector g (length D)
+static void pack_gradients(const Matrix *grad_alpha, const Matrix *grad_beta, double *g)
 {
+    int Cminus1 = grad_alpha->rows;
+    int A = grad_alpha->cols;
+    int G = grad_beta->rows;
+
+    // α block: row-major
+    int idx = 0;
+    for (int c = 0; c < Cminus1; c++)
+    {
+        for (int a = 0; a < A; a++)
+        {
+            g[idx++] = MATRIX_AT_PTR(grad_alpha, c, a);
+        }
+    }
+    // β block:
+    for (int g_i = 0; g_i < G; g_i++)
+    {
+        for (int c = 0; c < Cminus1; c++)
+        {
+            g[idx++] = MATRIX_AT_PTR(grad_beta, g_i, c);
+        }
+    }
 }
 
-Matrix EM_Algorithm(Matrix *X, Matrix *W, Matrix *V, Matrix *beta, Matrix *alpha, const int maxiter,
-                    const double maxtime, const double param_threshold, const double ll_threshold, const int maxnewton,
-                    const bool verbose)
+// ----- HELPER FUNCTION ----- //
+// Unpacks a step vector v (length D) into dalpha, dbeta
+static void unpack_step(const double *v, Matrix *dalpha, Matrix *dbeta)
 {
-    Matrix *q_bgc = E_step(X, W, V, beta, alpha);
-    M_step(X, W, V, q_bgc, alpha, beta, 0.001, maxnewton);
+    int Cminus1 = dalpha->rows;
+    int A = dalpha->cols;
+    int G = dbeta->rows;
+    int idx = 0;
+    for (int c = 0; c < Cminus1; c++)
+    {
+        for (int a = 0; a < A; a++)
+        {
+            MATRIX_AT_PTR(dalpha, c, a) = v[idx++];
+        }
+    }
+    for (int g_i = 0; g_i < G; g_i++)
+    {
+        for (int c = 0; c < Cminus1; c++)
+        {
+            MATRIX_AT_PTR(dbeta, g_i, c) = v[idx++];
+        }
+    }
+}
+
+int Newton_damped(Matrix *W,      // B×G weights
+                  Matrix *V,      // B×A covariates
+                  Matrix **q_bgc, // array of B matrices G×C
+                  Matrix *alpha0, // initial α (C-1×A)
+                  Matrix *beta0,  // initial β  (G×C)
+                  double tol, int max_iter, double alpha_bs, double beta_bs,
+                  Matrix *alpha_out, // outputs (same dims as alpha0)
+                  Matrix *beta_out   // outputs (same dims as beta0)
+)
+{
+    int B = V->rows;
+    int A = V->cols;
+    int Cminus1 = alpha0->rows;
+    int C = Cminus1 + 1;
+    int G = beta0->rows;
+    int D = Cminus1 * A + G * Cminus1;
+
+    // ---- Clone initial parameters
+    Matrix *alpha = copMatrixPtr(alpha0);
+    Matrix *beta = copMatrixPtr(beta0);
+
+    // ---- Allocate temporaries
+    double *gvec = (double *)Calloc(D, double);
+    double *vvec = (double *)Calloc(D, double);
+    Matrix dalpha = createMatrix(Cminus1, A);
+    Matrix dbeta = createMatrix(G, Cminus1);
+    Matrix H = createMatrix(D, D);
+
+    int iter;
+    for (iter = 0; iter < max_iter; iter++)
+    {
+        // ---- Evaluate loss, gradient, Hessian at the current points
+        // Loss
+        double f0 = objective_function(W, V, alpha, beta, *q_bgc);
+
+        // Gradients
+        Matrix grad_alpha = createMatrix(Cminus1, A);
+        Matrix grad_beta = createMatrix(G, Cminus1);
+        compute_gradients(W, V, alpha, beta, *q_bgc, &grad_alpha, &grad_beta);
+        pack_gradients(&grad_alpha, &grad_beta, gvec);
+
+        // Hessian (prezero H)
+        compute_hessian(W, V, alpha, beta, *q_bgc, &H);
+
+        freeMatrix(&grad_alpha);
+        freeMatrix(&grad_beta);
+
+        // ---- Damping of Hessian, in case it gets undefined on its diagonal (has to be semidefinite positive)
+        double diag_max = 0;
+        for (int i = 0; i < D; i++)
+        {
+            diag_max = fmax(diag_max, MATRIX_AT(H, i, i));
+        }
+        double eta = pow(tol, 0.5 /*τ*/);
+        for (int i = 0; i < D; i++)
+        {
+            for (int j = 0; j < D; j++)
+            {
+                double Hij = MATRIX_AT(H, i, j);
+                double Iij = (i == j ? 1.0 : 0.0);
+                MATRIX_AT(H, i, j) = (1 - eta) * Hij + eta * diag_max * Iij;
+            }
+        }
+        // ---...--- //
+
+        // Solve H v = -g, for approximating it with Taylor expansion
+        solve_linear_system(D, H.data, gvec, vvec);
+
+        // Unpack step into delta alpha, delta beta
+        unpack_step(vvec, &dalpha, &dbeta);
+
+        // Convergence check
+        double g_inf = 0;
+        for (int i = 0; i < D; i++)
+        {
+            g_inf = fmax(g_inf, fabs(gvec[i]));
+        }
+        if (g_inf < tol)
+            break;
+
+        // Armijo backtracking line search
+        double t = 1.0; // We start with t = 1
+        // compute g·v, the direction
+        double gv = 0;
+        for (int i = 0; i < D; i++)
+            gv += gvec[i] * vvec[i];
+        while (1)
+        {
+            // Trial parameters
+            Matrix *alpha_t = copMatrixPtr(alpha);
+            Matrix *beta_t = copMatrixPtr(beta);
+            // alpha_t = alpha_t + t * dalpha
+            for (int i = 0; i < Cminus1; i++)
+                for (int j = 0; j < A; j++)
+                    MATRIX_AT_PTR(alpha_t, i, j) += t * MATRIX_AT(dalpha, i, j);
+            // beta_t = beta_t + t * dbeta
+            for (int i = 0; i < G; i++)
+                for (int j = 0; j < Cminus1; j++)
+                    MATRIX_AT_PTR(beta_t, i, j) += t * MATRIX_AT(dbeta, i, j);
+
+            double f_trial = objective_function(W, V, alpha_t, beta_t, *q_bgc);
+            freeMatrix(alpha_t);
+            freeMatrix(beta_t);
+            if (f_trial <= f0 + alpha_bs * t * gv)
+                break;
+            t *= beta_bs;
+            if (t < 1e-10)
+                break;
+        }
+
+        // Update parameters. i.e, alpha and beta
+        for (int i = 0; i < Cminus1; i++)
+            for (int j = 0; j < A; j++)
+                MATRIX_AT_PTR(alpha, i, j) += t * MATRIX_AT(dalpha, i, j);
+        for (int i = 0; i < G; i++)
+            for (int j = 0; j < Cminus1; j++)
+                MATRIX_AT_PTR(beta, i, j) += t * MATRIX_AT(dbeta, i, j);
+    } // --- Newton iteration finishes
+
+    // Copy results out
+    size_t alpha_elems = alpha->rows * alpha->cols;
+    size_t alpha_bytes = alpha_elems * sizeof(double);
+    memcpy(alpha_out->data, alpha->data, alpha_bytes);
+
+    // β: (G × Cminus1)
+    size_t beta_elems = beta->rows * beta->cols;
+    size_t beta_bytes = beta_elems * sizeof(double);
+    memcpy(beta_out->data, beta->data, beta_bytes);
+
+    // Cleanup
+    freeMatrix(alpha);
+    freeMatrix(beta);
+    freeMatrix(&dalpha);
+    freeMatrix(&dbeta);
+    freeMatrix(&H);
+    Free(gvec);
+    Free(vvec);
+    for (int b = 0; b < B; b++)
+    {
+        freeMatrix(&(*q_bgc)[b]);
+    }
+
+    return iter + 1;
+}
+
+double compute_ll_multinomial(const Matrix *X, // B×C
+                              const Matrix *W, // B×G
+                              Matrix *V,       // B×A
+                              Matrix *alpha,   // (C-1)×A  (plus a baseline row)
+                              Matrix *beta     // G×C
+)
+{
+    int B = X->rows;
+    int C = X->cols;
+    int A = V->cols;
+    int G = W->cols;
+
+    double total_ll = 0.0;
+
+    // --- Get probabVy
+    Matrix *p_bgc = getProbability(V, beta, alpha); // B×G×C
+
+    // --- Get the log-likelihood in one go
+    for (int b = 0; b < B; b++)
+    {
+        for (int c = 0; c < C; c++)
+        {
+            double x_bc = MATRIX_AT_PTR(X, b, c);
+            total_ll -= lgamma(x_bc + 1);
+            ballot_votes[b] += x_bc;
+            total_ll += x_bc * log(fmax(MATRIX_AT_PTR(p_bgc, b, c), 1e-12));
+        }
+        total_ll += lgamma(ballot_votes[b] + 1);
+        freeMatrix(&p_bgc[b]);
+    }
+    Free(p_bgc);
+
+    return total_ll;
+}
+
+void M_step(Matrix *X, Matrix *W, Matrix *V, Matrix *q_bgc, Matrix *alpha, Matrix *beta, const double tol,
+            const int maxnewton, const bool verbose)
+{
+    int newton_iterations = Newton_damped(W, V, &q_bgc, alpha, beta, tol, maxnewton, 0.01, 0.5, alpha, beta);
+
+    if (verbose)
+    {
+        Rprintf("The newton algorithm was made in %d seconds\n", newton_iterations);
+    }
+}
+
+Matrix *EM_Algorithm(Matrix *X, Matrix *W, Matrix *V, Matrix *beta, Matrix *alpha, const int maxiter,
+                     const double maxtime, const double param_threshold, const double ll_threshold, const int maxnewton,
+                     const bool verbose)
+{
+    double current_ll = -DBL_MAX;
+    double new_ll = -DBL_MAX;
+    for (int iter = 0; iter < maxiter; iter++)
+    {
+        Matrix *q_bgc = E_step(X, W, V, beta, alpha);
+        M_step(X, W, V, q_bgc, alpha, beta, 0.001, maxnewton, verbose);
+        Free(q_bgc);
+        new_ll = compute_ll_multinomial(X, W, V, alpha, beta);
+
+        if (verbose)
+        {
+            Rprintf("Iteration %d: log-likelihood = %.3f\n", iter + 1, new_ll);
+        }
+
+        // Check for convergence
+        if (fabs(new_ll - current_ll) < ll_threshold)
+        {
+            if (verbose)
+            {
+                Rprintf("Converged after %d iterations.\n", iter + 1);
+            }
+            break;
+        }
+        current_ll = new_ll;
+    }
+
+    Matrix *finalProbability = getProbability(V, beta, alpha);
+    return finalProbability; // Return the final probabilities
 }

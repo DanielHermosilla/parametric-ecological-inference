@@ -9,7 +9,7 @@
     }
 
     # Check for disallowed arguments
-    allowed_params <- c(must_have, "beta", "alpha")
+    allowed_params <- c(must_have, "beta", "alpha", "prob")
     unexpected <- setdiff(provided, allowed_params)
     if (length(unexpected) > 0) {
         stop("Unexpected arguments: ", paste(unexpected, collapse = ", "))

@@ -30,6 +30,41 @@
 #ifndef BLAS_INT
 #define BLAS_INT int
 #endif
+
+/**
+ * @brief Checks if the matrix is well defined
+ *
+ * Given a pointer to a matrix, it verifies if the matrix is well alocated and defined and throws an error if there's
+ * something wrong.
+ *
+ * @param[in] m A pointer to the matrix
+ *
+ * @return void
+ *
+ * @note
+ * - This will just throw errors, note that EXIT_FAILURE will dealocate memory
+ *
+ * @warning
+ * - The pointer may be NULL.
+ * - The dimensions may be negative.
+ */
+
+void checkMatrix(const Matrix *m)
+{
+
+    // Validation, checks NULL pointer
+    if (!m || !m->data)
+    {
+        error("Matrix handling: A NULL pointer was handed as a matrix argument.\n");
+    }
+
+    // Checks dimensions
+    if (m->rows <= 0 || m->cols <= 0)
+    {
+        error("Matrix handling: Invalid matrix dimensions: rows=%d, cols=%d\n", m->rows, m->cols);
+    }
+}
+
 /**
  * @brief Transposes a Matrix.
  *
@@ -56,10 +91,6 @@ Matrix transposeMatrix(const Matrix *src)
 
     return dst;
 }
-
-// ----------------------------------------------------------------------------
-// Utility functions
-// ----------------------------------------------------------------------------
 
 /**
  * @brief Make an array of a constant value.
@@ -102,41 +133,6 @@ void makeArray(double *array, int N, double value)
         array[i] = value;
     }
 }
-
-/**
- * @brief Checks if the matrix is well defined
- *
- * Given a pointer to a matrix, it verifies if the matrix is well alocated and defined and throws an error if there's
- * something wrong.
- *
- * @param[in] m A pointer to the matrix
- *
- * @return void
- *
- * @note
- * - This will just throw errors, note that EXIT_FAILURE will dealocate memory
- *
- * @warning
- * - The pointer may be NULL.
- * - The dimensions may be negative.
- */
-
-void checkMatrix(const Matrix *m)
-{
-
-    // Validation, checks NULL pointer
-    if (!m || !m->data)
-    {
-        error("Matrix handling: A NULL pointer was handed as a matrix argument.\n");
-    }
-
-    // Checks dimensions
-    if (m->rows <= 0 || m->cols <= 0)
-    {
-        error("Matrix handling: Invalid matrix dimensions: rows=%d, cols=%d\n", m->rows, m->cols);
-    }
-}
-
 /**
  * @brief Creates an empty dynamically allocated memory matrix of given dimensions.
  *
@@ -1421,77 +1417,10 @@ Matrix matrixMultiplication(const Matrix *m1, const Matrix *m2)
     return C;
 }
 
-double *vectorMatrixMultiplication(const double *v, const Matrix *M)
+double matrixDotProduct(const double *x, const double *y, int n)
 {
-    // 1) Sanity checks
-    checkMatrix(M);
-    int G = M->rows;
-    int N = M->cols;
-    if (!v)
-    {
-        error("vectorMatrixMultiplication: input vector is NULL");
-    }
-
-    // 2) Allocate output
-    double *y = (double *)Calloc(N, double);
-    if (!y)
-    {
-        error("vectorMatrixMultiplication: failed to allocate output vector");
-    }
-
-    // 3) Set up BLAS parameters for y := alpha * Aᵀ %*% x + beta * y
-    //    with A = M (G×N), x = v (length G), y = result (length N)
-    char trans = 'T';       // use Aᵀ so dimensions match
-    BLAS_INT m = G;         // rows of A
-    BLAS_INT n = N;         // cols of A
-    BLAS_INT lda = M->rows; // leading dimension of A
-    BLAS_INT incx = 1;      // stride in x
-    BLAS_INT incy = 1;      // stride in y
-    double alpha = 1.0, beta = 0.0;
-
-    // 4) Call Fortran dgemv
-    F77_CALL(dgemv)
-    (&trans, // 'T'
-     &m,     // G
-     &n,     // N
-     &alpha,
-     M->data, // pointer to the G×N block
-     &lda,
-     v, // vector of length G
-     &incx, &beta,
-     y, // output vector of length N
-     &incy FCONE);
-
-    return y;
-}
-
-/// Performs out = v (1×G) × M (G×N) using BLAS DGEMV in‐place.
-/// - v: pointer to vector of length G (row vector)
-/// - M: pointer to Matrix struct of size G×N
-/// - out: pre-allocated array of length N for the result
-void vectorMatrixMultiplication_inplace(const double *v, const Matrix *M,
-                                        double *out // length = M->cols
-)
-{
-    // 1) Sanity check
-    checkMatrix(M);
-    int G = M->rows;
-    int N = M->cols;
-    if (v == NULL || out == NULL)
-    {
-        error("vectorMatrixMultiplication_inplace: NULL pointer received");
-    }
-
-    // 2) BLAS parameters for y := alpha * Aᵀ x + beta * y
-    //    with A = M (G×N), x = v (length G), y = out (length N)
-    char trans = 'T';       // use Aᵀ so dimensions match (N×G) × (G×1) → N×1
-    BLAS_INT m = G;         // rows of A
-    BLAS_INT n = N;         // cols of A
-    BLAS_INT lda = M->rows; // leading dimension of A in memory
-    BLAS_INT incx = 1;      // stride in x
-    BLAS_INT incy = 1;      // stride in y
-    double alpha = 1.0, beta = 0.0;
-
-    // 3) Call the Fortran DGEMV routine
-    F77_CALL(dgemv)(&trans, &m, &n, &alpha, M->data, &lda, v, &incx, &beta, out, &incy FCONE);
+    BLAS_INT N = (BLAS_INT)n;
+    BLAS_INT incx = 1;
+    BLAS_INT incy = 1;
+    return F77_CALL(ddot)(&N, x, &incx, y, &incy);
 }

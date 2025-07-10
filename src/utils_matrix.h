@@ -551,6 +551,12 @@ extern "C"
                                             double *out // length = M->cols
     );
 
+    /*
+     * @brief Does a matrix dot product.
+     *
+     */
+    double matrixDotProduct(const double *x, const double *y, int n);
+
 #ifdef __cplusplus
 }
 #endif

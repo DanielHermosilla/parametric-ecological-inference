@@ -19,7 +19,7 @@ eip <- function(X = NULL, W = NULL, V = NULL, json_path = NULL) {
         }
         params <- fromJSON(json_path)
     } else {
-        params <- c(X, W, V)
+        params <- list("X" = X, "W" = W, "V" = V)
     }
     # Validate each value handed
     .validate_eip(params)
@@ -39,6 +39,7 @@ run_em <- function(object = NULL,
                    maxtime = 3600,
                    param_threshold = 0.001,
                    ll_threshold = as.double(-Inf),
+                   maxnewton = 100,
                    seed = NULL,
                    verbose = FALSE,
                    ...) {
@@ -73,6 +74,7 @@ run_em <- function(object = NULL,
         maxtime,
         param_threshold,
         ll_threshold,
+        maxnewton,
         verbose,
     )
 

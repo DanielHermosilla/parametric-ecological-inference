@@ -18,6 +18,6 @@
 Rcpp::List EMAlgorithmC(Rcpp::NumericMatrix X, Rcpp::NumericMatrix W, Rcpp::NumericMatrix V, Rcpp::NumericMatrix beta,
                         Rcpp::NumericMatrix alpha, Rcpp::IntegerVector maxiter, Rcpp::NumericVector maxtime,
                         Rcpp::NumericVector param_threshold, Rcpp::NumericVector ll_threshold,
-                        Rcpp::LogicalVector verbose)
+                        Rcpp::IntegerVector maxnewton, Rcpp::LogicalVector verbose)
 {
 }

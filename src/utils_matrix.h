@@ -491,15 +491,6 @@ extern "C"
      * @return A new matrix merged by columns
      */
     Matrix mergeColumns(const Matrix *wmat, const int *boundaries, int numBoundaries);
-
-    /*
-     * @brief Checks if two matrices are equal
-     *
-     * @param[in] The first matrix to check
-     * @param[in] The second matrix to check
-     */
-    bool matricesAreEqual(Matrix *a, Matrix *b);
-
     /**
      * @brief Swaps two columns of a matrix in place.
      *
@@ -536,12 +527,6 @@ extern "C"
      * Calls BLAS under the hood to perform matrix multiplication.
      */
     Matrix matrixMultiplication(Matrix *m1, Matrix *m2);
-
-    /*
-     * @brief Does a vector-matrix multiplication.
-     *
-     */
-    double *vectorMatrixMultiplication(const double *v, const Matrix *M);
 
     /// Performs out = v (1×G) × M (G×N) using BLAS DGEMV in‐place.
     /// - v: pointer to vector of length G (row vector)

@@ -46,6 +46,8 @@ simulate_election <- function(
     v_da <- matrix(runif(num_districts * num_attributes, min = 0, max = 1),
         nrow = num_districts, ncol = num_attributes
     )
+    # v_da <- matrix(rnorm(num_districts * num_attributes), nrow = num_districts, ncol = num_attributes)
+
     v_ba <- e_bd %*% v_da
 
     # Compute candidate choice probs
@@ -109,11 +111,19 @@ simulate_election <- function(
         }
     }
 
+    # Go from district-wise probabilities to ballot-box-wise
+    p_bgc <- vector("list", num_ballots)
+    for (b in seq_len(num_ballots)) {
+        d <- which(e_bd[b, ] == 1L)
+        # p_dgc[d,,] is a G×C matrix
+        p_bgc[[b]] <- p_dgc[d, , ]
+    }
+
     result <- list(
         W = W,
         X = X,
         V = v_ba,
-        prob = p_dgc,
+        prob = p_bgc,
         alpha = alpha,
         beta = beta
     )

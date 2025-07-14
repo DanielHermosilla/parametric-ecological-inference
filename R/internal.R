@@ -9,11 +9,11 @@
     }
 
     # Check for disallowed arguments
-    allowed_params <- c(must_have, "beta", "alpha", "prob")
-    unexpected <- setdiff(provided, allowed_params)
-    if (length(unexpected) > 0) {
-        stop("Unexpected arguments: ", paste(unexpected, collapse = ", "))
-    }
+    # allowed_params <- c(must_have, "beta", "alpha", "prob")
+    # unexpected <- setdiff(provided, allowed_params)
+    # if (length(unexpected) > 0) {
+    #    stop("Unexpected arguments: ", paste(unexpected, collapse = ", "))
+    # }
 
     if (!is.matrix(args$X)) stop("`X` must be a matrix, but is a ", class(args$X)[1])
     if (!is.matrix(args$W)) stop("`W` must be a matrix, but is a ", class(args$W)[1])

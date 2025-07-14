@@ -13,11 +13,11 @@ library(jsonlite)
 #' @export
 eip <- function(X = NULL, W = NULL, V = NULL, json_path = NULL) {
     # Case when a json is provided
-    if (json_path != NULL) {
+    if (!is.null(json_path)) {
         if (!all(is.null(X), is.null(W), is.null(V))) {
             stop("If you supply `json_path`, you must NOT supply X, W, or V by hand.")
         }
-        params <- fromJSON(json_path)
+        params <- jsonlite::fromJSON(json_path)
     } else {
         params <- list("X" = X, "W" = W, "V" = V)
     }
@@ -34,10 +34,9 @@ run_em <- function(object = NULL,
                    V = NULL,
                    json_path = NULL,
                    beta = NULL,
-                   lambda = NULL,
+                   alpha = NULL,
                    maxiter = 1000,
                    maxtime = 3600,
-                   param_threshold = 0.001,
                    ll_threshold = as.double(-Inf),
                    maxnewton = 100,
                    seed = NULL,
@@ -47,7 +46,7 @@ run_em <- function(object = NULL,
     # .validate_compute(all_params) # nolint
 
     if (is.null(object)) {
-        object <- eim(X, W, V, json_path)
+        object <- eip(X, W, V, json_path)
     } else if (!inherits(object, "eip")) {
         stop("run_em: The object must be initialized with the eip() function.")
     }
@@ -57,25 +56,24 @@ run_em <- function(object = NULL,
     num_attributes <- ncol(object$V)
     num_ballot_boxes <- nrow(object$X)
 
-    if (beta == NULL) {
+    if (is.null(beta)) {
         beta <- matrix(0, nrow = num_groups, ncol = num_candidates - 1)
     }
-    if (alpha == NULL) {
+    if (is.null(alpha)) {
         alpha <- matrix(0, nrow = num_candidates - 1, ncol = num_attributes)
     }
 
     resulting_values <- EMAlgorithmC(
-        object$X,
-        object$W,
-        object$V,
-        beta,
-        lambda,
+        as.matrix(object$X),
+        as.matrix(object$W),
+        as.matrix(object$V),
+        as.matrix(beta),
+        as.matrix(alpha),
         maxiter,
         maxtime,
-        param_threshold,
         ll_threshold,
         maxnewton,
-        verbose,
+        verbose
     )
 
     print(resulting_values)

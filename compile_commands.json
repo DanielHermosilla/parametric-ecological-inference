@@ -1,0 +1,94 @@
+[
+  {
+    "arguments": [
+      "/usr/local/opt/llvm/bin/clang++",
+      "-std=gnu++17",
+      "-I/usr/local/Cellar/r/4.5.1/lib/R/include",
+      "-DNDEBUG",
+      "-I/usr/local/lib/R/4.5/site-library/Rcpp/include",
+      "-I/usr/local/opt/gettext/include",
+      "-I/usr/local/opt/readline/include",
+      "-I/usr/local/opt/xz/include",
+      "-I/usr/local/include",
+      "-fPIC",
+      "-g",
+      "-O2",
+      "-c",
+      "-o",
+      "RcppExports.o",
+      "RcppExports.cpp"
+    ],
+    "directory": "/Users/daniel/paramei/src",
+    "file": "/Users/daniel/paramei/src/RcppExports.cpp",
+    "output": "/Users/daniel/paramei/src/RcppExports.o"
+  },
+  {
+    "arguments": [
+      "/usr/local/opt/llvm/bin/clang",
+      "-std=gnu2x",
+      "-I/usr/local/Cellar/r/4.5.1/lib/R/include",
+      "-DNDEBUG",
+      "-I/usr/local/lib/R/4.5/site-library/Rcpp/include",
+      "-I/usr/local/opt/gettext/include",
+      "-I/usr/local/opt/readline/include",
+      "-I/usr/local/opt/xz/include",
+      "-I/usr/local/include",
+      "-fPIC",
+      "-g",
+      "-O2",
+      "-c",
+      "-o",
+      "main.o",
+      "main.c"
+    ],
+    "directory": "/Users/daniel/paramei/src",
+    "file": "/Users/daniel/paramei/src/main.c",
+    "output": "/Users/daniel/paramei/src/main.o"
+  },
+  {
+    "arguments": [
+      "/usr/local/opt/llvm/bin/clang",
+      "-std=gnu2x",
+      "-I/usr/local/Cellar/r/4.5.1/lib/R/include",
+      "-DNDEBUG",
+      "-I/usr/local/lib/R/4.5/site-library/Rcpp/include",
+      "-I/usr/local/opt/gettext/include",
+      "-I/usr/local/opt/readline/include",
+      "-I/usr/local/opt/xz/include",
+      "-I/usr/local/include",
+      "-fPIC",
+      "-g",
+      "-O2",
+      "-c",
+      "-o",
+      "utils_matrix.o",
+      "utils_matrix.c"
+    ],
+    "directory": "/Users/daniel/paramei/src",
+    "file": "/Users/daniel/paramei/src/utils_matrix.c",
+    "output": "/Users/daniel/paramei/src/utils_matrix.o"
+  },
+  {
+    "arguments": [
+      "/usr/local/opt/llvm/bin/clang++",
+      "-std=gnu++17",
+      "-I/usr/local/Cellar/r/4.5.1/lib/R/include",
+      "-DNDEBUG",
+      "-I/usr/local/lib/R/4.5/site-library/Rcpp/include",
+      "-I/usr/local/opt/gettext/include",
+      "-I/usr/local/opt/readline/include",
+      "-I/usr/local/opt/xz/include",
+      "-I/usr/local/include",
+      "-fPIC",
+      "-g",
+      "-O2",
+      "-c",
+      "-o",
+      "wrapper.o",
+      "wrapper.cpp"
+    ],
+    "directory": "/Users/daniel/paramei/src",
+    "file": "/Users/daniel/paramei/src/wrapper.cpp",
+    "output": "/Users/daniel/paramei/src/wrapper.o"
+  }
+]

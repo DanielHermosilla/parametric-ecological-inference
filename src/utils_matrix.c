@@ -1270,27 +1270,6 @@ Matrix mergeColumns(const Matrix *wmat, const int *boundaries, int numBoundaries
     return newMat;
 }
 
-/*
- * @brief Checks if two matrices are equal
- *
- * @param[in] The first matrix to check
- * @param[in] The second matrix to check
- */
-bool matricesAreEqual(Matrix *a, Matrix *b)
-{
-    checkMatrix(a);
-    checkMatrix(b);
-    for (int g = 0; g < TOTAL_GROUPS; g++)
-    {
-        for (int c = 0; c < TOTAL_CANDIDATES; c++)
-        {
-            if (MATRIX_AT_PTR(a, g, c) != MATRIX_AT_PTR(b, g, c))
-                return false;
-        }
-    }
-    return true;
-}
-
 /**
  * @brief Swaps two columns of a matrix in place.
  *
@@ -1379,7 +1358,7 @@ void addRowOfNaN(Matrix *matrix, int rowIndex)
     freeMatrix(&temp);
 }
 
-Matrix matrixMultiplication(const Matrix *m1, const Matrix *m2)
+Matrix matrixMultiplication(Matrix *m1, Matrix *m2)
 {
     // 1) sanity checks
     checkMatrix(m1);
@@ -1412,7 +1391,7 @@ Matrix matrixMultiplication(const Matrix *m1, const Matrix *m2)
 
     // 5) perform C = alpha * A %*% B + beta * C
     F77_CALL(dgemm)
-    (&transA, &transB, &m, &n, &k, &alpha, m1->data, &lda, m2->data, &ldb, &beta, C.data, &ldc FCONE, FCONE);
+    (&transA, &transB, &m, &n, &k, &alpha, m1->data, &lda, m2->data, &ldb, &beta, C.data, &ldc FCONE FCONE);
 
     return C;
 }
@@ -1427,18 +1406,69 @@ double matrixDotProduct(const double *x, const double *y, int n)
 
 void solve_linear_system(int D, double *H, double *g, double *v)
 {
-    // Copy g into v, since dgesv overwrites RHS
+    /* 1) build the RHS = –g */
     for (int i = 0; i < D; i++)
         v[i] = -g[i];
 
-    // Allocate pivot array
-    int *ipiv = (int *)Calloc(D, int);
-    int info;
-    BLAS_INT N = D, NRHS = 1, LDA = D, LDB = D;
+    /* 2) set up LAPACK ints */
+    BLAS_INT N = (BLAS_INT)D;
+    BLAS_INT NRHS = 1;
+    BLAS_INT LDA = (BLAS_INT)D;
+    BLAS_INT LDB = (BLAS_INT)D;
+    BLAS_INT info;
+    BLAS_INT *ipiv = (BLAS_INT *)Calloc(D, BLAS_INT);
+
+    /* 3) debug‐print the setup */
+    Rprintf("→ DGESV call args:\n");
+    Rprintf("   N     = %d   NRHS = %d\n", (int)N, (int)NRHS);
+    Rprintf("   LDA   = %d   LDB  = %d\n", (int)LDA, (int)LDB);
+
+    /* dump the top‐left 2×2 block of H (column-major) */
+    Rprintf("   H[0,0..1] = %g, %g\n", H[0], /* H(1,1) */
+            H[1 * LDA + 0] /* H(2,1) */);
+    Rprintf("   H[0..1,1] = %g, %g\n", H[1], /* H(1,2) */
+            H[1 * LDA + 1] /* H(2,2) */);
+
+    /* print the first few RHS entries */
+    Rprintf("   RHS v[0..3] = ");
+    for (int i = 0; i < D && i < 4; i++)
+        Rprintf("%g ", v[i]);
+    Rprintf("\n");
+
+    /* 4) call it */
     F77_CALL(dgesv)(&N, &NRHS, H, &LDA, ipiv, v, &LDB, &info);
-    if (info != 0)
+
+    /* 5) check results */
+    Rprintf("   DGESV returned info = %d\n", (int)info);
+    if (info == 0)
     {
-        error("DGESV failed with info = %d", info);
+        Rprintf("   solution v[0..3] = ");
+        for (int i = 0; i < D && i < 4; i++)
+            Rprintf("%g ", v[i]);
+        Rprintf("\n");
     }
+
+    if (info != 0)
+        error("DGESV failed with info = %d", (int)info);
+
     Free(ipiv);
+}
+
+void vectorMatrixMultiplication_inplace(const double *v, // length = G
+                                        const Matrix *M, // rows = G, cols = N
+                                        double *out      // length = N
+)
+{
+    // BLAS parameters
+    char trans = 'T'; // we want Mᵀ × vᵀ == v × M
+    BLAS_INT G = (BLAS_INT)M->rows;
+    BLAS_INT N = (BLAS_INT)M->cols;
+    double alpha = 1.0;
+    double beta = 0.0;
+    BLAS_INT lda = G; // leading dimension of M
+    BLAS_INT incx = 1;
+    BLAS_INT incy = 1;
+
+    // Call FORTRAN DGEMV: out <- alpha*Mᵀ·v + beta*out
+    F77_CALL(dgemv)(&trans, &G, &N, &alpha, M->data, &lda, v, &incx, &beta, out, &incy FCONE);
 }

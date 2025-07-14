@@ -11,9 +11,8 @@ simulate_election(
   num_groups,
   num_candidates,
   num_attributes,
-  lambda,
-  seed = 0,
-  verbose = FALSE
+  lambda = 0.5,
+  seed = 0
 )
 }
 \arguments{
@@ -29,9 +28,9 @@ simulate_election(
 
 \item{num_attributes}{number of attributes}
 
-\item{lambda}{Shuffling fraction of voters}
+\item{lambda}{Shuffling fraction of voters (0=no shuffle, 1=full shuffle)}
 
-\item{seed}{}
+\item{seed}{RNG seed}
 }
 \description{
 Simulate an election

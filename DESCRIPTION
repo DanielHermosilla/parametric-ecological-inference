@@ -4,7 +4,7 @@ Version: 0.0.0.9000
 Authors@R: c(person(given = "Charles", family = "Thraves", role = "aut"),
              person(given = "Pablo", family = "Ubilla", role = "aut"),
 			 person(given = "Leonardo", family = "Meneses", role = "aut"),
-             person(given = "Daniel", family = "Hermosilla", role = c("aut", "cre"), email = "daniel.hermosilla.r@ug.uchile.cl"),
+             person(given = "Daniel", family = "Hermosilla", role = c("aut", "cre"), email = "daniel.hermosilla.r@ug.uchile.cl"))
 Description: What the package does (one paragraph).
 License: `use_mit_license()`, `use_gpl3_license()` or friends to pick a
     license
@@ -12,5 +12,6 @@ Encoding: UTF-8
 Imports:
 	Rcpp,
 	jsonlite
+LinkingTo: Rcpp
 Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.3.2

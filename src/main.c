@@ -112,20 +112,7 @@ Matrix *E_step(Matrix *X, Matrix *W, Matrix *V, Matrix *beta, Matrix *alpha)
         double *S_ptr = getRow(&S_bc, b); // length C
 
         // Multiply
-        // vectorMatrixMultiplication_inplace(W_buf, &probabilities[b], S_ptr); // --- Length C
-        for (int c = 0; c < C; c++)
-        {
-            double acc = 0;
-            for (int g = 0; g < G; g++)
-            {
-                acc += W_buf[g] * MATRIX_AT(probabilities[b], g, c);
-            }
-            MATRIX_AT(S_bc, b, c) = acc;
-        }
-
-        // Copy the output to S_bc matrix
-        // memcpy(&S_bc.data[b * C], S_row, C * sizeof(double));
-        // double *S_row = getRow(&S_bc, b);
+        vectorMatrixMultiplication_inplace(W_buf, &probabilities[b], S_ptr); // --- Length C
     }
     Free(W_buf);
     // Free(S_row);
@@ -170,18 +157,8 @@ double objective_function(Matrix *W, Matrix *V, Matrix *alpha, Matrix *beta, Mat
 
     double loss = 0.0;
 
-    // --- Get log probabilities
+    // --- Get probabilities
     Matrix *probabilities = getProbability(V, beta, alpha);
-    for (int b = 0; b < B; b++)
-    { // --- For each ballot box
-        for (int g = 0; g < G; g++)
-        { // --- For each group
-            for (int c = 0; c < C; c++)
-            { // --- For each candidate
-                MATRIX_AT(probabilities[b], g, c) = log(fmax(MATRIX_AT(probabilities[b], g, c), 1e-12));
-            }
-        }
-    }
 
     // --- Get the dot product
     for (int b = 0; b < B; b++)
@@ -199,7 +176,7 @@ double objective_function(Matrix *W, Matrix *V, Matrix *alpha, Matrix *beta, Mat
             {
                 double q = MATRIX_AT(q_bgc[b], g, c);
                 double p = MATRIX_AT(probabilities[b], g, c);
-                dot += q * p;
+                dot += q * log(fmax(p, 1e-12));
             }
             loss -= MATRIX_AT_PTR(W, b, g) * dot; // Check if it is to sum or to substract
         }

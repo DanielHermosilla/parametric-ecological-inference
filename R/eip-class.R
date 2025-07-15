@@ -77,4 +77,6 @@ run_em <- function(object = NULL,
     )
 
     print(resulting_values)
+    class(resulting_values) <- "eip"
+    return(resulting_values)
 }

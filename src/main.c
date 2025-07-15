@@ -34,7 +34,6 @@
 #undef I
 
 // Calculates a B x G X C tensor with the probabilities of each district
-// If
 Matrix *getProbability(Matrix *V, Matrix *beta, Matrix *alpha)
 {
 
@@ -259,194 +258,58 @@ void compute_gradients(const Matrix *W, Matrix *V, Matrix *alpha, Matrix *beta, 
             MATRIX_AT_PTR(grad_alpha_out, c, a) = sum1 - sum2;
         }
     }
-
-    /*
-    for (int b = 0; b < B; b++)
-    { // --- For each ballot box
-        for (int g = 0; g < G; g++)
-        { // --- For each group
-            double w = MATRIX_AT_PTR(W, b, g);
-            for (int c = 0; c < Cminus1; c++)
-            { // --- For each candidate
-                double diff = MATRIX_AT(q_bgc[b], g, c) - MATRIX_AT(p_bgc[b], g, c);
-                // double diff = MATRIX_AT(p_bgc[b], g, c) - MATRIX_AT(q_bgc[b], g, c);
-
-                // --- Beta gradient
-                MATRIX_AT_PTR(grad_beta_out, g, c) += w * diff;
-                // --- Alpha gradient over a
-                for (int a = 0; a < A; a++)
-                {
-                    MATRIX_AT_PTR(grad_alpha_out, c, a) += w * diff * MATRIX_AT_PTR(V, b, a);
-                }
-            }
-            // baseline column c=Cminus1: grad_beta = 0 by constraint, skip
-        }
-        freeMatrix(&p_bgc[b]);
-    }
-    Free(p_bgc);
-    */
     // after filling grad_alpha_out and grad_beta_out:
-
     for (int b = 0; b < B; b++)
     {
         freeMatrix(&p_bgc[b]);
     }
     Free(p_bgc);
-    double sum_ga = 0, sum_gb = 0;
-    for (int c = 0; c < Cminus1; c++)
-    {
-        for (int a = 0; a < A; a++)
-            sum_ga += MATRIX_AT_PTR(grad_alpha_out, c, a);
-    }
-    for (int g = 0; g < G; g++)
-    {
-        for (int c = 0; c < Cminus1; c++)
-            sum_gb += MATRIX_AT_PTR(grad_beta_out, g, c);
-    }
-    Rprintf("DEBUG grads: sum(grad_alpha)=%f  sum(grad_beta)=%f\n", sum_ga, sum_gb);
 }
 
-// Cmpute the Hessian matrix for the optimization problem
-/*
-void compute_hessian(const Matrix *W,     // B×G
-                     Matrix *V,           // B×A
-                     Matrix *alpha,       // (C–1)×A
-                     Matrix *beta,        // G×C
-                     const Matrix *q_bgc, // array of B matrices G×C
-                     Matrix *H_out        // (D×D), prezeroed
-)
+void compute_hessian(const Matrix *W,     // BxG
+                     const Matrix *V,     // BxA   (k_ba)
+                     const Matrix *alpha, // (C-1)xA
+                     const Matrix *beta,  // GxC   (we only use 1..C-1)
+                     Matrix *H_out)       // (dα+dβ) × (dα+dβ) – PRE-zeroed
 {
-    int B = V->rows;
-    int A = V->cols;
-    int Cminus1 = alpha->rows;
-    int C = Cminus1 + 1;
-    int G = beta->rows;
-
-    int d_alpha = Cminus1 * A; // This is the alpha block of the hessian
-
-    // --- Get the probabilities
-    Matrix *p_bgc = getProbability(V, beta, alpha);
-
-    // -- Accumulate second derivatives over b,g
-    for (int b = 0; b < B; b++)
-    { // For each ballot box
-        for (int g = 0; g < G; g++)
-        { // For each group
-            double w = MATRIX_AT_PTR(W, b, g);
-            for (int c = 0; c < Cminus1; c++)
-            { // For each candidate
-                // Get its probability and conditional probability
-                double p_c = MATRIX_AT(p_bgc[b], g, c);
-                double q_c = MATRIX_AT(q_bgc[b], g, c);
-
-                // ---- We fill the \partial\beta\beta block ---- //
-                // $ -w \cdot [ \delta_{c,k} \cdot (q_c - p_c) - p_c \cdot p_k ] $
-                for (int k = 0; k < Cminus1; k++)
-                { // For each candidate
-                    // Get the kth candidate probability
-                    double p_k = MATRIX_AT(p_bgc[b], g, k);
-                    // If it's the same candidate as the outer loop, compute the second derivative
-                    double d2bb = -w * ((c == k ? (p_c) : 0.0) - p_c * p_k);
-                    // This is just for indexing purposes
-                    // int row_b = d_alpha + c * G + g;
-                    // int col_b = d_alpha + k * G + g;
-                    int row_b = d_alpha + c * G + g;
-                    int col_b = d_alpha + k * G + g;
-                    MATRIX_AT_PTR(H_out, row_b, col_b) += d2bb;
-                }
-
-                // ---- Beta alpha and alpha beta blocks ---- //
-                // $ -w \cdot v_{b,a} \cdot (q_c - p_c) $
-                for (int a = 0; a < A; a++)
-                { // For each attribute
-                    double v_ba = MATRIX_AT_PTR(V, b, a);
-                    double d2ba = -w * v_ba * (q_c - p_c);
-                    // This is just for indexing purposes
-                    // int row_b = d_alpha + c * G + g;
-                    // int col_a = a * Cminus1 + c;
-                    int row_b = d_alpha + c * G + g; // column-major index of β₍g,c₎
-                    int col_a = a * Cminus1 + c;
-                    // The entry is symmetric, so we fill both positions
-                    MATRIX_AT_PTR(H_out, row_b, col_a) += d2ba;
-                    MATRIX_AT_PTR(H_out, col_a, row_b) += d2ba;
-                }
-
-                // ---- Alpha alpha block ---- //
-                // $ w[p_c \cdot p_k \cdot v_{b,a} - \delta_{c,k}(q_c - p_c) \cdot v_{b,a} \cdot v_{b,o}] $
-                for (int k = 0; k < Cminus1; k++)
-                { // For each candidate
-                    // Get the probability of the kth candidate
-                    double p_k = MATRIX_AT(p_bgc[b], g, k);
-                    for (int a = 0; a < A; a++)
-                    { // For each attribute
-                        // Get the ponderation of its attribute
-                        double v_ba = MATRIX_AT_PTR(V, b, a);
-                        for (int o = 0; o < A; o++)
-                        { // For each attribute
-                            double v_bo = MATRIX_AT_PTR(V, b, o);
-                            double term1 = p_c * p_k * v_ba * v_bo;
-                            double term2 = (c == k ? (q_c - p_c) * v_ba * v_bo : 0.0);
-                            double d2aa = w * (term1 - term2);
-                            // For indexing purposes
-                            int row_a = a * Cminus1 + c;
-                            int col_o = o * Cminus1 + k;
-                            MATRIX_AT_PTR(H_out, row_a, col_o) += d2aa;
-                        }
-                    }
-                }
-            }
-        }
-        freeMatrix(&p_bgc[b]);
-    }
-    Free(p_bgc);
-}
-*/
-/* --------------  H = ∂²Q  ---------------------------------------------- */
-void compute_hessian(const Matrix *W,     /* B×G */
-                     const Matrix *V,     /* B×A   (k_ba)               */
-                     const Matrix *alpha, /* (C-1)×A */
-                     const Matrix *beta,  /* G×C   (we only use 1..C-1) */
-                     Matrix *H_out)       /* (dα+dβ) × (dα+dβ) – PRE-zeroed */
-{
-    /* ---------- dimensions & derived sizes -------------------------------- */
+    // --- Get the dimensions
     const int B = V->rows;
     const int A = V->cols;
-    const int Cm = alpha->rows; /* Cminus1 = C-1                      */
+    const int Cm = alpha->rows; // Cminus1 = C-1
     const int C = Cm + 1;
     const int G = beta->rows;
 
-    const int d_alpha = Cm * A; /* flattened α block size             */
-    const int d_beta = G * Cm;  /* flattened β block size             */
+    const int d_alpha = Cm * A; // flattened \alpha block size
+    const int d_beta = G * Cm;  // flattened \beta block size
 
-    /* ---------- 1. pre-allocate the 4 blocks (they start at zero) ---------- */
+    // --- Preallocate the Hessian blocks
     Matrix H_aa = createMatrix(d_alpha, d_alpha);
     Matrix H_ab = createMatrix(d_alpha, d_beta);
     Matrix H_ba = createMatrix(d_beta, d_alpha);
     Matrix H_bb = createMatrix(d_beta, d_beta);
 
-    /* ---------- 2. p_bgc[b] ≡ probabilities for mesa b --------------------- */
+    // --- Get the probabilities
     Matrix *p_bgc = getProbability((Matrix *)V, (Matrix *)beta, (Matrix *)alpha);
     /* ----------------------------------------------------------------------- */
 
-    /* =====================   α – α   ====================================== */
-    /*  ∂²Q/∂α_{c′,a′}∂α_{c,a}  */
+    /* =====================   \alpha - \alpha   ====================================== */
     for (int i = 0; i < d_alpha; ++i)
-    {
+    { // --- For each coordinate in the flattened \alpha block
         int a_i = i / Cm;
         int c_i = i % Cm;
         for (int j = 0; j < d_alpha; ++j)
-        {
+        { // --- For each coordinate in the flattened \alpha block
             int a_j = j / Cm;
             int c_j = j % Cm;
 
             double sum = 0.0;
             for (int b = 0; b < B; ++b)
-            {
+            { // --- For each ballot box
                 double k_ba = MATRIX_AT_PTR(V, b, a_i);
                 double k_ba_ = MATRIX_AT_PTR(V, b, a_j);
 
                 for (int g = 0; g < G; ++g)
-                {
+                { // --- For each group
                     double w = MATRIX_AT_PTR(W, b, g);
                     double p_c = MATRIX_AT(p_bgc[b], g, c_i);
                     double p_c_ = MATRIX_AT(p_bgc[b], g, c_j);
@@ -460,21 +323,20 @@ void compute_hessian(const Matrix *W,     /* B×G */
         }
     }
 
-    /* =====================   β – α   ====================================== */
-    /*  ∂²Q/∂β_{g,c′}∂α_{c,a}  */
+    /* =====================   \beta - \alpha   ====================================== */
     for (int i = 0; i < d_alpha; ++i)
-    {
+    { // --- For each \alpha coordinate
         int a_i = i / Cm;
         int c_i = i % Cm;
 
         for (int j = 0; j < d_beta; ++j)
-        {
+        { // --- For each \beta coordinate
             int c_j = j / G;
             int g_j = j % G;
 
             double sum = 0.0;
             for (int b = 0; b < B; ++b)
-            {
+            { // --- For each ballot box
                 double w = MATRIX_AT_PTR(W, b, g_j);
                 double k_ba = MATRIX_AT_PTR(V, b, a_i);
                 double p_ci = MATRIX_AT(p_bgc[b], g_j, c_i);
@@ -484,32 +346,31 @@ void compute_hessian(const Matrix *W,     /* B×G */
                 double t2 = w * k_ba * p_ci * p_cj;
                 sum += t1 + t2;
             }
-            MATRIX_AT(H_ab, i, j) = sum; /* αβ  */
-            MATRIX_AT(H_ba, j, i) = sum; /* βα  (symmetry) */
+            MATRIX_AT(H_ab, i, j) = sum;
+            MATRIX_AT(H_ba, j, i) = sum; // Simmetric
         }
     }
 
-    /* =====================   β – β   ====================================== */
-    /*  ∂²Q/∂β_{g′,c′}∂β_{g,c}  */
+    /* =====================   \beta – \beta   ====================================== */
     for (int i = 0; i < d_beta; ++i)
-    {
-        int c_i = i / G; /* candidate runs slowest            */
-        int g_i = i % G; /* group runs  fastest               */
+    { // --- For each beta coordinate
+        int c_i = i / G;
+        int g_i = i % G;
 
         for (int j = 0; j < d_beta; ++j)
-        {
+        { // --- For each beta coordinate
             int c_j = j / G;
             int g_j = j % G;
 
             if (g_i != g_j)
-            { /* derivative is zero if g≠g′ */
-                MATRIX_AT(H_bb, i, j) = 0.0;
+            {
+                MATRIX_AT(H_bb, i, j) = 0.0; // Not actually necessary, for clarity
                 continue;
             }
 
             double sum = 0.0;
             for (int b = 0; b < B; ++b)
-            {
+            { // --- For each ballot box
                 double w = MATRIX_AT_PTR(W, b, g_i);
                 double p_ci = MATRIX_AT(p_bgc[b], g_i, c_i);
                 double p_cj = MATRIX_AT(p_bgc[b], g_j, c_j);
@@ -522,57 +383,40 @@ void compute_hessian(const Matrix *W,     /* B×G */
         }
     }
 
-    /* =====================   assemble into H_out   ======================== */
-    /* upper-left αα */
-    //  for (int i = 0; i < d_alpha; ++i)
-    //     for (int j = 0; j < d_alpha; ++j)
-    //        MATRIX_AT_PTR(H_out, i, j) = -MATRIX_AT(H_aa, i, j);
-
-    /* upper-right αβ */
-    // for (int i = 0; i < d_alpha; ++i)
-    //    for (int j = 0; j < d_beta; ++j)
-    //       MATRIX_AT_PTR(H_out, i, d_alpha + j) = -MATRIX_AT(H_ab, i, j);
-
-    /* lower-left βα  */
-    // for (int i = 0; i < d_beta; ++i)
-    //    for (int j = 0; j < d_alpha; ++j)
-    //       MATRIX_AT_PTR(H_out, d_alpha + i, j) = -MATRIX_AT(H_ba, i, j);
-
-    /* lower-right ββ */
-    // for (int i = 0; i < d_beta; ++i)
-    //    for (int j = 0; j < d_beta; ++j)
-    //       MATRIX_AT_PTR(H_out, d_alpha + i, d_alpha + j) = -MATRIX_AT(H_bb, i, j);
+    // Assemble everything in ROW-MAJOR order, this is VERY important!
     const int D = d_alpha + d_beta;
     for (int i = 0; i < D; ++i)
-    {
+    { // For each coordinate in the flattened Hessian
         for (int j = 0; j < D; ++j)
-        {
+        { // For each coordinate in the flattened Hessian
             double val;
+            // We save the hessian values as negative
             if (i < d_alpha && j < d_alpha)
             {
-                // α–α
+                // \alpha - \alpha
                 val = -MATRIX_AT(H_aa, i, j);
             }
             else if (i < d_alpha && j >= d_alpha)
             {
-                // α–β
+                // \alpha - \beta
                 val = -MATRIX_AT(H_ab, i, j - d_alpha);
             }
             else if (i >= d_alpha && j < d_alpha)
             {
-                // β–α
+                // \beta - \alpha
                 val = -MATRIX_AT(H_ba, i - d_alpha, j);
             }
             else
             {
-                // β–β
+                // \beta \beta
                 val = -MATRIX_AT(H_bb, i - d_alpha, j - d_alpha);
             }
-            // asigna directamente en row-major:
+            // Assign them as row major
             H_out->data[i * D + j] = val;
         }
     }
-    /* =====================   clean-up   =================================== */
+
+    // Clean up
     for (int b = 0; b < B; ++b)
         freeMatrix(&p_bgc[b]);
     Free(p_bgc);
@@ -582,8 +426,9 @@ void compute_hessian(const Matrix *W,     /* B×G */
     freeMatrix(&H_ba);
     freeMatrix(&H_bb);
 }
+
 // ----- HELPER FUNCTION ----- //
-// Packs grad_alpha (C–1 × A, column‐major) followed by grad_beta (G × C–1, column‐major)
+// Packs grad_alpha (C–1 x A, column‐major) followed by grad_beta (G x C–1, column‐major)
 // both in column‐major order, into the flat vector g[0..D-1].
 static void pack_gradients(const Matrix *grad_alpha, // (C–1)×A
                            const Matrix *grad_beta,  // G×(C–1)
@@ -595,24 +440,23 @@ static void pack_gradients(const Matrix *grad_alpha, // (C–1)×A
     int G = grad_beta->rows;
     int idx = 0;
 
-    // 1) α-block: loop over columns a=0..A-1, then rows c=0..Cminus1-1
-    for (int a = 0; a < A; ++a)
-    {
-        for (int c = 0; c < Cminus1; ++c)
-        {
+    // \alpha block
+    for (int a = 0; a < A; a++)
+    { // --- For each attribute
+        for (int c = 0; c < Cminus1; c++)
+        { // --- For each candidate
             g[idx++] = MATRIX_AT_PTR(grad_alpha, c, a);
         }
     }
 
-    // 2) β-block: loop over “candidate” c=0..Cminus1-1, then groups g=0..G-1
-    for (int c = 0; c < Cminus1; ++c)
-    {
-        for (int gi = 0; gi < G; ++gi)
-        {
+    // \beta block
+    for (int c = 0; c < Cminus1; c++)
+    { // --- For each candidate
+        for (int gi = 0; gi < G; gi++)
+        { // --- For each group
             g[idx++] = MATRIX_AT_PTR(grad_beta, gi, c);
         }
     }
-    // at the end idx == Cminus1*A + G*Cminus1
 }
 
 // Unpacks a flat D‐vector v[] back into two matrices, in the same order.
@@ -626,25 +470,25 @@ static void unpack_step(const double *v,    // length = Cminus1*A + G*Cminus1
     int G = grad_beta->rows;
     int idx = 0;
 
-    // 1) α-block: columns then rows
+    // \alpha block
     for (int a = 0; a < A; ++a)
-    {
+    { // --- For each attribute
         for (int c = 0; c < Cminus1; ++c)
-        {
+        { // --- For each candidate
             MATRIX_AT_PTR(grad_alpha, c, a) = v[idx++];
         }
     }
 
-    // 2) β-block: candidate‐index then group
+    // \beta block
     for (int c = 0; c < Cminus1; ++c)
-    {
+    { // --- For each candidate
         for (int gi = 0; gi < G; ++gi)
-        {
+        { // --- For each group
             MATRIX_AT_PTR(grad_beta, gi, c) = v[idx++];
         }
     }
-    // idx ends up = total dimension
 }
+
 int Newton_damped(Matrix *W,      // B×G weights
                   Matrix *V,      // B×A covariates
                   Matrix **q_bgc, // array of B matrices G×C
@@ -684,173 +528,41 @@ int Newton_damped(Matrix *W,      // B×G weights
         Matrix grad_alpha = createMatrix(Cminus1, A);
         Matrix grad_beta = createMatrix(G, Cminus1);
         compute_gradients(W, V, alpha, beta, *q_bgc, &grad_alpha, &grad_beta);
-
         pack_gradients(&grad_alpha, &grad_beta, gvec);
-        // --- right after pack_gradients(&grad_alpha,&grad_beta,gvec) ---
-        Rprintf("DEBUG pack_gradients: Cminus1=%d, A=%d, G=%d, D(total)=%d\n", Cminus1, A, G, D);
-
-        /* print gvec with explicit mapping hints */
-        for (int idx = 0; idx < D; ++idx)
-        {
-            if (idx < Cminus1 * A) /* α-block ------------------- */
-            {
-                int a = idx / Cminus1;
-                int c = idx % Cminus1;
-                Rprintf(" gvec[%2d] = % .6e   // alpha[%d,%d]   should be "
-                        "grad_alpha[%d,%d]\n",
-                        idx, gvec[idx], c, a, c, a);
-            }
-            else /* β-block ------------------- */
-            {
-                int beta_idx = idx - Cminus1 * A;
-                int c = beta_idx / G;
-                int g_i = beta_idx % G;
-                Rprintf(" gvec[%2d] = % .6e   // beta[%d,%d]    should be "
-                        "grad_beta[%d,%d]\n",
-                        idx, gvec[idx], g_i, c, g_i, c);
-            }
-        }
-        Rprintf("\nDEBUG gvec[0..%d]  (flat order α first, then β):\n", D - 1);
-        for (int i = 0; i < D; ++i)
-            Rprintf("%+.6e ", gvec[i]);
-        Rprintf("\n\n");
 
         // Hessian (prezero H)
         size_t D2 = (size_t)D * (size_t)D;
         memset(H.data, 0, D2 * sizeof(double));
-
         compute_hessian(W, V, alpha, beta, &H);
-        // --- right after compute_hessian(...,&H) but before any damping/solving ---
-        Rprintf("DEBUG Hessian blocks (size %d×%d):\n", D, D);
-        Rprintf(" alpha‐block size = %d×%d   (rows/cols %d..%d)\n", Cminus1 * A, Cminus1 * A, G * Cminus1,
-                G * Cminus1 + Cminus1 * A - 1);
-        Rprintf(" beta‐block  size = %d×%d   (rows/cols 0..%d)\n", G * Cminus1, G * Cminus1, G * Cminus1 - 1);
-
-        /* ββ block ------------------------------------------------------------- */
-        int d_alpha = (Cminus1)*A; /* = (C-1)·A  */
-        int d_beta = G * Cminus1;  /* = G·(C-1)  */
-        int off = d_beta;
-
-        Rprintf("  ββ  (rows/cols 0..%d) – should vanish when g≠g':\n", off - 1);
-        for (int i = 0; i < off; ++i)
-        {
-            for (int j = 0; j < off; ++j)
-            {
-                /* identify (g,c) of each flat position for easier eyeballing */
-                int gi = i % G, ci = i / G;
-                int gj = j % G, cj = j / G;
-                Rprintf("% .3e", MATRIX_AT(H, i, j));
-                if (gj != gi)
-                    Rprintf("*"); /* mark entries that *should* be ≈0 */
-                Rprintf(" ");
-            }
-            Rprintf("\n");
-        }
-        Rprintf("  ( * marks rows/cols where g≠g' and value should be ~0 )\n\n");
-
-        /* βα / αβ cross block -------------------------------------------------- */
-        Rprintf("  βα / αβ  (β rows 0..%d , α cols %d..%d) – symmetrical:\n", off - 1, off, D - 1);
-        for (int i = 0; i < off; ++i)
-        {
-            for (int j = off; j < D; ++j)
-                Rprintf("% .3e ", MATRIX_AT(H, i, j));
-            Rprintf("\n");
-        }
-        Rprintf("\n");
-
-        /* αα block ------------------------------------------------------------- */
-        Rprintf("  αα  (rows/cols %d..%d) – should be symmetric:\n", off, D - 1);
-        for (int ii = 0; ii < d_alpha; ++ii)
-        {
-            int i = off + ii;
-            for (int jj = 0; jj < d_alpha; ++jj)
-            {
-                int j = off + jj;
-                Rprintf("% .3e ", MATRIX_AT(H, i, j));
-            }
-            Rprintf("\n");
-        }
-        Rprintf("\n");
-        printMatrix(&H);
-
         freeMatrix(&grad_alpha);
         freeMatrix(&grad_beta);
 
-        // ---- Damping of Hessian, in case it gets undefined on its diagonal (has to be semidefinite positive)
-        /*
-        double diag_max = 0;
-        for (int i = 0; i < D; i++)
-        {
-            diag_max = fmax(diag_max, MATRIX_AT(H, i, i));
-        }
-        double eta = pow(tol, 0.5);
-        for (int i = 0; i < D; i++)
-        {
-            for (int j = 0; j < D; j++)
-            {
-                double Hij = MATRIX_AT(H, i, j);
-                double Iij = (i == j ? 1.0 : 0.0);
-                MATRIX_AT(H, i, j) = (1 - eta) * Hij + eta * diag_max * Iij;
-            }
-        }
-        double diag_min = MATRIX_AT(H, 0, 0);
-        for (int i = 1; i < D; ++i)
-            diag_min = fmin(diag_min, MATRIX_AT(H, i, i));
-
-        // 2. Define un umbral deseado
-        double eps = tol; // p.ej. tol = 1e-6
-
-        // 3. Si hace falta, añade delta a la diagonal
-        if (diag_min < eps)
-        {
-            double delta = eps - diag_min;
-            for (int i = 0; i < D; ++i)
-            {
-                MATRIX_AT(H, i, i) += delta;
-            }
-        }
-        */
+        // Damping of the hessian
         double min_diag = DBL_MAX;
         for (int i = 0; i < D; i++)
         {
             min_diag = fmin(min_diag, MATRIX_AT(H, i, i));
         }
-
-        // Choose a tiny ε relative to your scale
+        // Choose a tiny epsilon
         double eps = 1e-6 * (fabs(min_diag) + 1.0);
-
-        // If the smallest diagonal is below zero, shift by (–min_diag + ε),
-        // otherwise just add ε to make it strictly positive
+        // If the smallest diagonal is below zero, shift by (–min_diag + \epsilon),
+        // otherwise just add \epsilon to make it strictly positive
         double shift = (min_diag < 0.0 ? -min_diag + eps : eps);
-
         for (int i = 0; i < D; i++)
         {
             MATRIX_AT(H, i, i) += shift;
         }
-
         // ---...--- //
-        // right after compute_hessian(...,&H):
-        // Rprintf("DEBUG: H[0..4,0..4] block:\n");
-        // printMatrix(&H);
-        // Rprintf("   EXPECTED: H symmetric, diag entries ≥ 0 after damping\n\n");
 
         // Solve H v = -g, for approximating it with Taylor expansion
         Matrix Hcopy = copMatrix(&H);
         solve_linear_system(D, Hcopy.data, gvec, vvec);
-        Rprintf("The vvec[0..9] after solve_linear_system:\n");
         for (int i = 0; i < D; i++)
         {
             vvec[i] = -vvec[i];
-            Rprintf("%.4f, ", vvec[i]);
         }
-        Rprintf("\n");
-
-        // right after solve_linear_system and before negating if any:
-        // Rprintf("DEBUG: raw Newton step vvec[0..9]:\n");
-        // Unpack step into delta alpha, delta beta
         unpack_step(vvec, &dalpha, &dbeta);
-        Rprintf("DEBUG  dalpha[0,0] = %+.6e   // should be vvec[0]\n", MATRIX_AT(dalpha, 0, 0));
-        Rprintf("DEBUG  dbeta [0,0] = %+.6e   // should be vvec[%d]\n", MATRIX_AT(dbeta, 0, 0), Cminus1 * A);
+
         // Convergence check
         double g_inf = 0;
         for (int i = 0; i < D; i++)
@@ -862,10 +574,11 @@ int Newton_damped(Matrix *W,      // B×G weights
 
         // Armijo backtracking line search
         double t = 1.0; // We start with t = 1
-        // compute g·v, the direction
+        // compute g*v, the direction
         double gv = 0;
         for (int i = 0; i < D; i++)
             gv += gvec[i] * vvec[i];
+
         while (1)
         {
             // Trial parameters
@@ -885,7 +598,6 @@ int Newton_damped(Matrix *W,      // B×G weights
             freeMatrix(beta_t);
             if (f_trial <= f0 + alpha_bs * t * gv)
             {
-                Rprintf("The function value is %.3f, the initial value is %.3f, and the gv is %.3f\n", f_trial, f0, gv);
                 break;
             }
             t *= beta_bs;
@@ -901,7 +613,6 @@ int Newton_damped(Matrix *W,      // B×G weights
             for (int j = 0; j < Cminus1; j++)
                 MATRIX_AT_PTR(beta, i, j) += t * MATRIX_AT(dbeta, i, j);
 
-        // Rprintf("  update: alpha[0,0]=%g, beta[0,0]=%g\n", MATRIX_AT_PTR(alpha, 0, 0), MATRIX_AT_PTR(beta, 0, 0));
     } // --- Newton iteration finishes
 
     // Copy results out
@@ -909,7 +620,6 @@ int Newton_damped(Matrix *W,      // B×G weights
     size_t alpha_bytes = alpha_elems * sizeof(double);
     memcpy(alpha_out->data, alpha->data, alpha_bytes);
 
-    // β: (G × Cminus1)
     size_t beta_elems = beta->rows * beta->cols;
     size_t beta_bytes = beta_elems * sizeof(double);
     memcpy(beta_out->data, beta->data, beta_bytes);
@@ -922,87 +632,16 @@ int Newton_damped(Matrix *W,      // B×G weights
     freeMatrix(&H);
     Free(gvec);
     Free(vvec);
-    // for (int b = 0; b < B; b++)
-    //{
-    //    freeMatrix(&(*q_bgc)[b]);
-    //}
 
     return iter + 1;
 }
 
-/*
-double compute_ll_multinomial(const Matrix *X, // B×C
-                              const Matrix *W, // B×G
-                              Matrix *q_bgc,   // B×G×C
-                              Matrix *V,       // B×A
-                              Matrix *alpha,   // (C-1)×A  (plus a baseline row)
-                              Matrix *beta     // G×C
-)
-{
-    int B = X->rows;
-    int C = X->cols;
-    int A = V->cols;
-    int G = W->cols;
-
-    double total_ll = 0.0;
-
-    Matrix *p_bgc = getProbability(V, beta, alpha);
-
-    Matrix p_bc = createMatrix(B, C);
-    for (int b = 0; b < B; ++b)
-    {
-        double w_sum = 0;
-        for (int g = 0; g < G; ++g)
-            w_sum += MATRIX_AT_PTR(W, b, g);
-        double denom = w_sum + 1e-12;
-
-        for (int c = 0; c < C; ++c)
-        {
-            double marg = 0;
-            for (int g = 0; g < G; ++g)
-                marg += MATRIX_AT_PTR(W, b, g) * MATRIX_AT(p_bgc[b], g, c);
-            MATRIX_AT(p_bc, b, c) = marg / denom;
-        }
-        freeMatrix(&p_bgc[b]);
-    }
-    Free(p_bgc);
-
-    double *x_sum = (double *)Calloc(B, double);
-
-    for (int b = 0; b < B; ++b)
-    {
-        // 4a) accumulate counts, subtract ∑ ln(x_bc!)
-        for (int c = 0; c < C; ++c)
-        {
-            double x = MATRIX_AT_PTR(X, b, c);
-            x_sum[b] += x;
-            total_ll -= lgamma(x + 1.0);
-        }
-        // 4b) add ln(x_b!) term
-        total_ll += lgamma(x_sum[b] + 1.0);
-
-        // 4c) add data term ∑ x_bc · ln(p_bc)
-        for (int c = 0; c < C; ++c)
-        {
-            double p = fmax(MATRIX_AT(p_bc, b, c), 1e-12);
-            double x = MATRIX_AT_PTR(X, b, c);
-            total_ll += x * log(p);
-        }
-    }
-
-    freeMatrix(&p_bc);
-    Free(x_sum);
-
-    return total_ll;
-}
-*/
-
-double compute_ll_multinomial(const Matrix *X, // B×C
-                              const Matrix *W, // B×G
-                              Matrix *q_bgc,   // B×G×C
-                              Matrix *V,       // B×A
-                              Matrix *alpha,   // (C-1)×A  (plus a baseline row)
-                              Matrix *beta     // G×C
+double compute_ll_multinomial(const Matrix *X, // BxC
+                              const Matrix *W, // BxG
+                              Matrix *q_bgc,   // BxGxC
+                              Matrix *V,       // BxA
+                              Matrix *alpha,   // (C-1)xA  (plus a baseline row)
+                              Matrix *beta     // GxC
 )
 {
     int B = X->rows;
@@ -1016,13 +655,13 @@ double compute_ll_multinomial(const Matrix *X, // B×C
 
     for (int b = 0; b < B; ++b)
     {
-        // 1) compute denominator = sum_g w_bg[b,g]
+        // compute denominator = sum_g w_bg[b,g]
         double wsum = 0;
         for (int g = 0; g < G; ++g)
             wsum += MATRIX_AT_PTR(W, b, g);
         double denom = wsum + 1e-12;
 
-        // 2) (optional) multinomial factorial term
+        // multinomial factorial term
         double xb = 0;
         for (int c = 0; c < C; ++c)
         {
@@ -1032,7 +671,7 @@ double compute_ll_multinomial(const Matrix *X, // B×C
         }
         total_ll += lgamma(xb + 1.0);
 
-        // 3) data term ∑_c x_bc · log(p_bc)
+        // data term \sum x_bc · log(p_bc)
         for (int c = 0; c < C; ++c)
         {
             double marg = 0;
@@ -1040,7 +679,7 @@ double compute_ll_multinomial(const Matrix *X, // B×C
             {
                 marg += MATRIX_AT_PTR(W, b, g) * MATRIX_AT(p_bgc[b], g, c);
             }
-            // normalize exactly as Python
+            // normalize
             double pbc = marg / denom;
             // clamp before log
             total_ll += MATRIX_AT_PTR(X, b, c) * log(fmax(pbc, 1e-12));
@@ -1053,13 +692,7 @@ double compute_ll_multinomial(const Matrix *X, // B×C
 void M_step(Matrix *X, Matrix *W, Matrix *V, Matrix *q_bgc, Matrix *alpha, Matrix *beta, const double tol,
             const int maxnewton, const bool verbose)
 {
-    Rprintf("Before the newton method, the parameters are:\n");
-    Rprintf("Alpha:\n");
-    printMatrix(alpha);
     int newton_iterations = Newton_damped(W, V, &q_bgc, alpha, beta, tol, maxnewton, 0.01, 0.5, alpha, beta);
-    Rprintf("After the newton method, the parameters are:\n");
-    Rprintf("Alpha:\n");
-    printMatrix(alpha);
 
     if (verbose)
     {
@@ -1075,11 +708,8 @@ Matrix *EM_Algorithm(Matrix *X, Matrix *W, Matrix *V, Matrix *beta, Matrix *alph
     clock_gettime(CLOCK_MONOTONIC_RAW, &t0); // Start timer
     double current_ll = -DBL_MAX;
     double new_ll = -DBL_MAX;
-    printMatrix(X);
-    printMatrix(W);
     for (int iter = 0; iter < maxiter; iter++)
     {
-        // Rprintf("The updated alpha is %f\n", MATRIX_AT_PTR(alpha, 0, 0));
         *total_iterations += 1;
         Matrix *q_bgc = E_step(X, W, V, beta, alpha);
         M_step(X, W, V, q_bgc, alpha, beta, 0.001, maxnewton, verbose);
@@ -1088,7 +718,7 @@ Matrix *EM_Algorithm(Matrix *X, Matrix *W, Matrix *V, Matrix *beta, Matrix *alph
 
         if (verbose)
         {
-            Rprintf("Iteration %d: log-likelihood = %.3f\n", iter + 1, new_ll);
+            Rprintf("Iteration %d: log-likelihood = %.4f\n", iter + 1, new_ll);
         }
 
         // Check for convergence

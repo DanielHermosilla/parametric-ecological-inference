@@ -1406,11 +1406,9 @@ double matrixDotProduct(const double *x, const double *y, int n)
 
 void solve_linear_system(int D, double *H, double *g, double *v)
 {
-    /* 1) build the RHS = –g */
     for (int i = 0; i < D; i++)
         v[i] = -g[i];
 
-    /* 2) set up LAPACK ints */
     BLAS_INT N = (BLAS_INT)D;
     BLAS_INT NRHS = 1;
     BLAS_INT LDA = (BLAS_INT)D;
@@ -1418,35 +1416,7 @@ void solve_linear_system(int D, double *H, double *g, double *v)
     BLAS_INT info;
     BLAS_INT *ipiv = (BLAS_INT *)Calloc(D, BLAS_INT);
 
-    /* 3) debug‐print the setup */
-    Rprintf("→ DGESV call args:\n");
-    Rprintf("   N     = %d   NRHS = %d\n", (int)N, (int)NRHS);
-    Rprintf("   LDA   = %d   LDB  = %d\n", (int)LDA, (int)LDB);
-
-    /* dump the top‐left 2×2 block of H (column-major) */
-    Rprintf("   H[0,0..1] = %g, %g\n", H[0], /* H(1,1) */
-            H[1 * LDA + 0] /* H(2,1) */);
-    Rprintf("   H[0..1,1] = %g, %g\n", H[1], /* H(1,2) */
-            H[1 * LDA + 1] /* H(2,2) */);
-
-    /* print the first few RHS entries */
-    Rprintf("   RHS v[0..3] = ");
-    for (int i = 0; i < D && i < 4; i++)
-        Rprintf("%g ", v[i]);
-    Rprintf("\n");
-
-    /* 4) call it */
     F77_CALL(dgesv)(&N, &NRHS, H, &LDA, ipiv, v, &LDB, &info);
-
-    /* 5) check results */
-    Rprintf("   DGESV returned info = %d\n", (int)info);
-    if (info == 0)
-    {
-        Rprintf("   solution v[0..3] = ");
-        for (int i = 0; i < D && i < 4; i++)
-            Rprintf("%g ", v[i]);
-        Rprintf("\n");
-    }
 
     if (info != 0)
         error("DGESV failed with info = %d", (int)info);

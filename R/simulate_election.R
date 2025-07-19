@@ -88,11 +88,18 @@ simulate_election <- function(
 
         # Shuffle a lambda fraction within district
         n_mix <- round(lambda * I_d)
+        # if (n_mix > 0) {
+        #     idx <- sample.int(I_d, n_mix)
+        #     idx_sort <- sort(idx)
+        # Reassign in shuffled positions
+        #    omega[idx] <- omega0[idx_sort]
+        # }
         if (n_mix > 0) {
             idx <- sample.int(I_d, n_mix)
-            idx_sort <- sort(idx)
-            # Reassign in shuffled positions
-            omega[idx] <- omega0[idx_sort]
+            # grab the values to be mixed
+            vals_to_mix <- omega0[idx]
+            # randomly permute those values
+            omega[idx] <- sample(vals_to_mix, length(vals_to_mix))
         }
 
         # Partition into ballot-boxes and tally

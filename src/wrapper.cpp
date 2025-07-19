@@ -67,14 +67,14 @@ Rcpp::List EMAlgorithmC(Rcpp::NumericMatrix X, Rcpp::NumericMatrix W, Rcpp::Nume
     }
     Free(finalProb);
 
-    // 4) copy out final Beta, Alpha
+    // copy out final Beta, Alpha
     Rcpp::NumericMatrix Rbeta(BetaR.rows, BetaR.cols);
     std::memcpy(Rbeta.begin(), BetaR.data, sizeof(double) * BetaR.rows * BetaR.cols);
 
     Rcpp::NumericMatrix Ralpha(AlphaR.rows, AlphaR.cols);
     std::memcpy(Ralpha.begin(), AlphaR.data, sizeof(double) * AlphaR.rows * AlphaR.cols);
 
-    // 5) clean up all C allocations
+    // clean up all C allocations
     freeMatrix(&XR);
     std::free(XR.data);
     freeMatrix(&WR);
@@ -84,7 +84,7 @@ Rcpp::List EMAlgorithmC(Rcpp::NumericMatrix X, Rcpp::NumericMatrix W, Rcpp::Nume
     std::free(BetaR.data);
     std::free(AlphaR.data);
 
-    // 6) return everything
-    return Rcpp::List::create(Rcpp::_["probabilities"] = probArr, Rcpp::_["beta"] = Rbeta, Rcpp::_["alpha"] = Ralpha,
-                              Rcpp::_["total_time"] = elapsed, Rcpp::_["total_iterations"] = total_iter);
+    // return everything
+    return Rcpp::List::create(Rcpp::_["prob"] = probArr, Rcpp::_["beta"] = Rbeta, Rcpp::_["alpha"] = Ralpha,
+                              Rcpp::_["time"] = elapsed, Rcpp::_["iter"] = total_iter);
 }

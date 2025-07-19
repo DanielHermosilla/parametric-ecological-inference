@@ -56,6 +56,7 @@ run_em <- function(object = NULL,
     num_attributes <- ncol(object$V)
     num_ballot_boxes <- nrow(object$X)
 
+    # Create the initial alpha and beta if not provided
     if (is.null(beta)) {
         beta <- matrix(0, nrow = num_groups, ncol = num_candidates - 1)
     }
@@ -63,6 +64,7 @@ run_em <- function(object = NULL,
         alpha <- matrix(0, nrow = num_candidates - 1, ncol = num_attributes)
     }
 
+    # Call the algorithm from C
     resulting_values <- EMAlgorithmC(
         as.matrix(object$X),
         as.matrix(object$W),
@@ -76,7 +78,11 @@ run_em <- function(object = NULL,
         verbose
     )
 
-    print(resulting_values)
-    class(resulting_values) <- "eip"
-    return(resulting_values)
+    # Append the results
+    for (nm in names(resulting_values)) {
+        object[[nm]] <- resulting_values[[nm]]
+    }
+
+    class(object) <- "eip"
+    return(object)
 }

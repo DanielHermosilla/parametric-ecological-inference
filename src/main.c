@@ -80,7 +80,7 @@ Matrix *getProbability(Matrix *V, Matrix *beta, Matrix *alpha)
     // Free matrices
     freeMatrix(&alphaTransposed);
     freeMatrix(&VxA);
-    return toReturn; // Replace with actual return value
+    return toReturn;
 }
 
 Matrix *E_step(Matrix *X, Matrix *W, Matrix *V, Matrix *beta, Matrix *alpha)
@@ -99,22 +99,39 @@ Matrix *E_step(Matrix *X, Matrix *W, Matrix *V, Matrix *beta, Matrix *alpha)
     Matrix S_bc = createMatrix(B, C);
     // double *W_row = (double *)Calloc(G, double);
     // double *S_row = (double *)Calloc(C, double);
-    double *W_buf = Calloc(G, double);
+    // double *W_buf = Calloc(G, double);
+    double *W_buf[G];
     for (int b = 0; b < B; b++)
     { // --- For each ballot box
       // Get the bth row of W
+      // vectorMatrixMultiplication_inplace(W_buf, &probabilities[b], S_ptr); // --- Length C
         for (int g = 0; g < G; g++)
         {
-            W_buf[g] = MATRIX_AT_PTR(W, b, g);
+            W_buf[g] = &MATRIX_AT_PTR(W, b, g);
         }
+        for (int c = 0; c < C; c++)
+        {
+            double acc = 0;
+            for (int g = 0; g < G; g++)
+            {
+                acc += *W_buf[g] * MATRIX_AT(probabilities[b], g, c);
+            }
+            MATRIX_AT(S_bc, b, c) = acc;
+        }
+
+        // Copy the output to S_bc matrix
+
+        // memcpy(&S_bc.data[b * C], S_row, C * sizeof(double));
+
+        // double *S_row = getRow(&S_bc, b);
         // memcpy(W_row, &W->data[b * G], G * sizeof(double));
         // double *W_row = getRow(W, b);
-        double *S_ptr = getRow(&S_bc, b); // length C
+        // double *S_ptr = getRow(&S_bc, b); // length C
 
         // Multiply
-        vectorMatrixMultiplication_inplace(W_buf, &probabilities[b], S_ptr); // --- Length C
+        // vectorMatrixMultiplication_inplace(W_buf, &probabilities[b], S_ptr); // --- Length C
     }
-    Free(W_buf);
+    // Free(W_buf);
     // Free(S_row);
 
     // ---- Get q_bgc
@@ -243,6 +260,7 @@ void compute_gradients(const Matrix *W, Matrix *V, Matrix *alpha, Matrix *beta, 
     Free(p_bgc);
 }
 
+/*
 void compute_hessian(const Matrix *W,     // BxG
                      const Matrix *V,     // BxA   (k_ba)
                      const Matrix *alpha, // (C-1)xA
@@ -267,9 +285,9 @@ void compute_hessian(const Matrix *W,     // BxG
 
     // --- Get the probabilities
     Matrix *p_bgc = getProbability((Matrix *)V, (Matrix *)beta, (Matrix *)alpha);
-    /* ----------------------------------------------------------------------- */
+    // -----------------------------------------------------------------------
 
-    /* =====================   \alpha - \alpha   ====================================== */
+    // =====================   \alpha - \alpha   ======================================
     for (int i = 0; i < d_alpha; ++i)
     { // --- For each coordinate in the flattened \alpha block
         int a_i = i / Cm;
@@ -300,7 +318,7 @@ void compute_hessian(const Matrix *W,     // BxG
         }
     }
 
-    /* =====================   \beta - \alpha   ====================================== */
+    // =====================   \beta - \alpha   ======================================
     for (int i = 0; i < d_alpha; ++i)
     { // --- For each \alpha coordinate
         int a_i = i / Cm;
@@ -328,7 +346,7 @@ void compute_hessian(const Matrix *W,     // BxG
         }
     }
 
-    /* =====================   \beta – \beta   ====================================== */
+    // =====================   \beta – \beta   ======================================
     for (int i = 0; i < d_beta; ++i)
     { // --- For each beta coordinate
         int c_i = i / G;
@@ -402,6 +420,92 @@ void compute_hessian(const Matrix *W,     // BxG
     freeMatrix(&H_ab);
     freeMatrix(&H_ba);
     freeMatrix(&H_bb);
+}
+*/
+
+void compute_hessian(const Matrix *W,     // B×G
+                     const Matrix *V,     // B×A
+                     const Matrix *alpha, // (C-1)×A
+                     const Matrix *beta,  // G×C  (we only use cols 0..C-2)
+                     Matrix *H_out)       // (d_alpha+d_beta)×(d_alpha+d_beta) – PRE-zeroed
+{
+    const int B = V->rows;
+    const int A = V->cols;
+    const int Cm = alpha->rows; // C-1
+    const int C = Cm + 1;
+    const int G = beta->rows;
+    const int d_alpha = Cm * A;
+    const int d_beta = G * Cm;
+    const int D = d_alpha + d_beta;
+
+    /* 1) zero out the entire Hessian */
+    memset(H_out->data, 0, D * D * sizeof(double));
+
+    /* 2) compute p_bgc once */
+    Matrix *p_bgc = getProbability((Matrix *)V, (Matrix *)beta, (Matrix *)alpha);
+
+    size_t n_iters = (size_t)B * G * Cm * Cm;
+#ifdef _OPENMP
+#pragma omp parallel for collapse(4) if (n_iters > 100) schedule(static)
+#endif
+    for (int b = 0; b < B; b++)
+    {
+        for (int g = 0; g < G; g++)
+        {
+            double w = MATRIX_AT_PTR(W, b, g);
+
+            for (int ci = 0; ci < Cm; ci++)
+            {
+                double p_ci = MATRIX_AT(p_bgc[b], g, ci);
+
+                for (int cj = 0; cj < Cm; cj++)
+                {
+                    double p_cj = MATRIX_AT(p_bgc[b], g, cj);
+                    // negative of second‐derivative of log‑prob
+                    double base = p_ci * p_cj + (ci == cj ? -p_ci : 0.0);
+                    double factor = -w * base;
+
+                    // alpha–alpha block
+                    for (int ai = 0; ai < A; ai++)
+                    {
+                        double v_ai = MATRIX_AT_PTR(V, b, ai);
+                        int row_alpha = ai * Cm + ci;
+                        for (int aj = 0; aj < A; aj++)
+                        {
+                            double v_aj = MATRIX_AT_PTR(V, b, aj);
+                            int col_alpha = aj * Cm + cj;
+                            MATRIX_AT_PTR(H_out, row_alpha, col_alpha) += v_ai * v_aj * factor;
+                        }
+                    }
+
+                    // alpha–beta and beta–alpha blocks
+                    for (int ai = 0; ai < A; ai++)
+                    {
+                        double v_ai = MATRIX_AT_PTR(V, b, ai);
+                        int row_alpha = ai * Cm + ci;
+                        int col_beta = d_alpha + g * Cm + cj;
+                        double upd = v_ai * factor;
+                        MATRIX_AT_PTR(H_out, row_alpha, col_beta) += upd;
+                        MATRIX_AT_PTR(H_out, col_beta, row_alpha) += upd;
+                    }
+
+                    // beta–beta block
+                    {
+                        int row_beta = d_alpha + g * Cm + ci;
+                        int col_beta = d_alpha + g * Cm + cj;
+                        MATRIX_AT_PTR(H_out, row_beta, col_beta) += factor;
+                    }
+                }
+            }
+        }
+    }
+
+    // cleanup
+    for (int b = 0; b < B; ++b)
+    {
+        freeMatrix(&p_bgc[b]);
+    }
+    Free(p_bgc);
 }
 
 // ----- HELPER FUNCTION ----- //
@@ -578,7 +682,7 @@ int Newton_damped(Matrix *W,      // B×G weights
                 break;
             }
             t *= beta_bs;
-            if (t < 1e-10)
+            if (t < 1e-4)
                 break;
         }
 
@@ -689,7 +793,7 @@ Matrix *EM_Algorithm(Matrix *X, Matrix *W, Matrix *V, Matrix *beta, Matrix *alph
     {
         *total_iterations += 1;
         Matrix *q_bgc = E_step(X, W, V, beta, alpha);
-        M_step(X, W, V, q_bgc, alpha, beta, 0.001, maxnewton, verbose);
+        M_step(X, W, V, q_bgc, alpha, beta, 0.01, maxnewton, verbose);
         new_ll = compute_ll_multinomial(X, W, q_bgc, V, alpha, beta);
         Free(q_bgc);
 

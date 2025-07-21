@@ -30,9 +30,31 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// bootstrapC
+Rcpp::List bootstrapC(Rcpp::NumericMatrix X, Rcpp::NumericMatrix W, Rcpp::NumericMatrix V, Rcpp::NumericMatrix beta, Rcpp::NumericMatrix alpha, int maxiter, int bootiter, double maxtime, double ll_threshold, int maxnewton, bool verbose);
+RcppExport SEXP _paramei_bootstrapC(SEXP XSEXP, SEXP WSEXP, SEXP VSEXP, SEXP betaSEXP, SEXP alphaSEXP, SEXP maxiterSEXP, SEXP bootiterSEXP, SEXP maxtimeSEXP, SEXP ll_thresholdSEXP, SEXP maxnewtonSEXP, SEXP verboseSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< Rcpp::NumericMatrix >::type X(XSEXP);
+    Rcpp::traits::input_parameter< Rcpp::NumericMatrix >::type W(WSEXP);
+    Rcpp::traits::input_parameter< Rcpp::NumericMatrix >::type V(VSEXP);
+    Rcpp::traits::input_parameter< Rcpp::NumericMatrix >::type beta(betaSEXP);
+    Rcpp::traits::input_parameter< Rcpp::NumericMatrix >::type alpha(alphaSEXP);
+    Rcpp::traits::input_parameter< int >::type maxiter(maxiterSEXP);
+    Rcpp::traits::input_parameter< int >::type bootiter(bootiterSEXP);
+    Rcpp::traits::input_parameter< double >::type maxtime(maxtimeSEXP);
+    Rcpp::traits::input_parameter< double >::type ll_threshold(ll_thresholdSEXP);
+    Rcpp::traits::input_parameter< int >::type maxnewton(maxnewtonSEXP);
+    Rcpp::traits::input_parameter< bool >::type verbose(verboseSEXP);
+    rcpp_result_gen = Rcpp::wrap(bootstrapC(X, W, V, beta, alpha, maxiter, bootiter, maxtime, ll_threshold, maxnewton, verbose));
+    return rcpp_result_gen;
+END_RCPP
+}
 
 static const R_CallMethodDef CallEntries[] = {
     {"_paramei_EMAlgorithmC", (DL_FUNC) &_paramei_EMAlgorithmC, 10},
+    {"_paramei_bootstrapC", (DL_FUNC) &_paramei_bootstrapC, 11},
     {NULL, NULL, 0}
 };
 

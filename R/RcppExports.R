@@ -6,3 +6,8 @@ EMAlgorithmC <- function(X, W, V, beta, alpha, maxiter, maxtime, ll_threshold, m
     .Call(`_paramei_EMAlgorithmC`, X, W, V, beta, alpha, maxiter, maxtime, ll_threshold, maxnewton, verbose)
 }
 
+#' @export
+bootstrapC <- function(X, W, V, beta, alpha, maxiter, bootiter, maxtime, ll_threshold, maxnewton, verbose) {
+    .Call(`_paramei_bootstrapC`, X, W, V, beta, alpha, maxiter, bootiter, maxtime, ll_threshold, maxnewton, verbose)
+}
+

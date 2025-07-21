@@ -3,6 +3,8 @@
 S3method(print,eip)
 S3method(summary,eip)
 export(EMAlgorithmC)
+export(bootstrap)
+export(bootstrapC)
 export(eip)
 export(run_em)
 export(simulate_election)

@@ -496,6 +496,38 @@ int Newton_damped(Matrix *W, // B×G weights
         {
             MATRIX_AT(buf->H, i, i) += shift;
         }
+        // --- Python‐style Hessian damping
+        // (1) compute eta
+        /*
+        const double tau = 0.5;
+        const double eta = tol; // since lambda_alpha + lambda_beta = 0
+
+        // 2) Find the maximum diagonal entry of H
+        double max_diag = MATRIX_AT(buf->H, 0, 0);
+        for (int i = 1; i < D; ++i)
+        {
+            max_diag = fmax(max_diag, MATRIX_AT(buf->H, i, i));
+        }
+
+        // 3) Replace H ← (1−η)·H + η·max_diag·I
+        for (int i = 0; i < D; ++i)
+        {
+            for (int j = 0; j < D; ++j)
+            {
+                double hij = MATRIX_AT(buf->H, i, j);
+                if (i == j)
+                {
+                    // blend diagonal toward max_diag
+                    MATRIX_AT(buf->H, i, j) = (1.0 - eta) * hij + eta * max_diag;
+                }
+                else
+                {
+                    // shrink off‐diagonals
+                    MATRIX_AT(buf->H, i, j) = (1.0 - eta) * hij;
+                }
+            }
+        }
+        */
         // ---...--- //
 
         // Solve H v = -g, for approximating it with Taylor expansion
@@ -545,7 +577,7 @@ int Newton_damped(Matrix *W, // B×G weights
                 break;
             }
             t *= beta_bs;
-            if (t < 1e-4)
+            if (t < 1e-8)
                 break;
         }
 
@@ -657,9 +689,14 @@ Matrix *EM_Algorithm(Matrix *X, Matrix *W, Matrix *V, Matrix *beta, Matrix *alph
     for (int iter = 0; iter < maxiter; iter++)
     {
         *total_iterations += 1;
+        double tol = 1.0 / (iter + 1);
         E_step(X, W, V, &buf);
-        M_step(X, W, V, &buf, 0.01, maxnewton, verbose);
+        M_step(X, W, V, &buf, tol, maxnewton, verbose);
         new_ll = compute_ll_multinomial(X, W, V, &buf);
+
+        // Check if the user want to interrupt the process
+        if (iter % 5 == 0)
+            R_CheckUserInterrupt();
 
         if (verbose)
         {
@@ -667,7 +704,7 @@ Matrix *EM_Algorithm(Matrix *X, Matrix *W, Matrix *V, Matrix *beta, Matrix *alph
         }
 
         // Check for convergence
-        if (fabs(new_ll - current_ll) <= ll_threshold)
+        if (fabs(new_ll - current_ll) <= ll_threshold || current_ll >= new_ll)
         {
             if (verbose)
             {
@@ -679,16 +716,15 @@ Matrix *EM_Algorithm(Matrix *X, Matrix *W, Matrix *V, Matrix *beta, Matrix *alph
     }
     clock_gettime(CLOCK_MONOTONIC_RAW, &t1);
 
-    size_t na = buf.alpha.rows * buf.alpha.cols;
-    memcpy(alpha->data, buf.alpha.data, na * sizeof(double));
-    size_t nb = buf.beta.rows * buf.beta.cols;
-    memcpy(beta->data, buf.beta.data, nb * sizeof(double));
-
     // Compute elapsed seconds
     double sec = (double)(t1.tv_sec - t0.tv_sec);
     double nsec = (double)(t1.tv_nsec - t0.tv_nsec) * 1e-9;
     *out_elapsed = sec + nsec;
 
+    size_t na = buf.alpha.rows * buf.alpha.cols;
+    memcpy(alpha->data, buf.alpha.data, na * sizeof(double));
+    size_t nb = buf.beta.rows * buf.beta.cols;
+    memcpy(beta->data, buf.beta.data, nb * sizeof(double));
     Matrix *finalProb = buf.prob;
     // detach buf.prob so we don't free it:
     buf.prob = NULL;

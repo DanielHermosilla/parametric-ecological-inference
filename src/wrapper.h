@@ -22,4 +22,8 @@ Rcpp::List EMAlgorithmC(Rcpp::NumericMatrix X, Rcpp::NumericMatrix W, Rcpp::Nume
                         Rcpp::NumericMatrix alpha, int maxiter, double maxtime, double ll_threshold, int maxnewton,
                         bool verbose);
 
+Rcpp::List bootstrapC(Rcpp::NumericMatrix X, Rcpp::NumericMatrix W, Rcpp::NumericMatrix V, Rcpp::NumericMatrix beta,
+                      Rcpp::NumericMatrix alpha, int maxiter, int bootiter, double maxtime, double ll_threshold,
+                      int maxnewton, bool verbose);
+
 #endif // WRAPPER_H

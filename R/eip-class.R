@@ -86,3 +86,66 @@ run_em <- function(object = NULL,
     class(object) <- "eip"
     return(object)
 }
+
+#' @export
+bootstrap <- function(object = NULL,
+                      X = NULL,
+                      W = NULL,
+                      V = NULL,
+                      json_path = NULL,
+                      nboot = 50,
+                      ...) {
+    all_params <- lapply(as.list(match.call(expand.dots = TRUE)), eval, parent.frame())
+    # .validate_compute(all_params) # nolint
+
+    if (is.null(object)) {
+        object <- eip(X, W, V, json_path)
+    } else if (!inherits(object, "eip")) {
+        stop("run_em: The object must be initialized with the eip() function.")
+    }
+
+    num_candidates <- ncol(object$X)
+    num_groups <- ncol(object$W)
+    num_attributes <- ncol(object$V)
+    num_ballot_boxes <- nrow(object$X)
+
+    # Create the initial alpha and beta if not provided
+    if (is.null(all_params$beta)) {
+        all_params$beta <- matrix(0, nrow = num_groups, ncol = num_candidates - 1)
+    }
+    if (is.null(all_params$alpha)) {
+        all_params$alpha <- matrix(0, nrow = num_candidates - 1, ncol = num_attributes)
+    }
+
+
+    # Extract parameters with defaults if missing
+    maxiter <- if (!is.null(all_params$maxiter)) all_params$maxiter else 1000
+    maxtime <- if (!is.null(all_params$maxtime)) all_params$maxtime else 3600
+    maxnewton <- if (!is.null(all_params$maxnewton)) all_params$maxnewton else 5
+    ll_threshold <- if (!is.null(all_params$ll_threshold)) all_params$ll_threshold else 0.001
+    verbose <- if (!is.null(all_params$verbose)) all_params$verbose else FALSE
+
+    # Call the algorithm from C
+    print("going in to the C call")
+    resulting_values <- bootstrapC(
+        as.matrix(object$X),
+        as.matrix(object$W),
+        as.matrix(object$V),
+        as.matrix(all_params$beta),
+        as.matrix(all_params$alpha),
+        maxiter,
+        nboot,
+        maxtime,
+        ll_threshold,
+        maxnewton,
+        verbose
+    )
+
+    # Append the results
+    for (nm in names(resulting_values)) {
+        object[[nm]] <- resulting_values[[nm]]
+    }
+
+    class(object) <- "eip"
+    return(object)
+}

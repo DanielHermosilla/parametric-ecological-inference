@@ -1,4 +1,5 @@
 #include "wrapper.h"
+#include "bootstrap.h"
 #include "main.h"
 #include <R.h>
 #include <R_ext/Random.h>
@@ -87,4 +88,49 @@ Rcpp::List EMAlgorithmC(Rcpp::NumericMatrix X, Rcpp::NumericMatrix W, Rcpp::Nume
     // return everything
     return Rcpp::List::create(Rcpp::_["prob"] = probArr, Rcpp::_["beta"] = Rbeta, Rcpp::_["alpha"] = Ralpha,
                               Rcpp::_["time"] = elapsed, Rcpp::_["iter"] = total_iter);
+}
+
+//' @export
+// [[Rcpp::export]]
+Rcpp::List bootstrapC(Rcpp::NumericMatrix X, Rcpp::NumericMatrix W, Rcpp::NumericMatrix V, Rcpp::NumericMatrix beta,
+                      Rcpp::NumericMatrix alpha, int maxiter, int bootiter, double maxtime, double ll_threshold,
+                      int maxnewton, bool verbose)
+{
+    Rprintf("Entered bootstrap\n");
+    // 1) marshal inputs
+    Matrix XR = convertToMatrix(X);
+    Matrix WR = convertToMatrix(W);
+    Matrix VR = convertToMatrix(V);
+    Matrix BetaR = convertToMatrix(beta);
+    Matrix AlphaR = convertToMatrix(alpha);
+
+    // 2) run EM, capture time & iterations
+    double elapsed = 0.0;
+    int total_iter = 0;
+
+    Matrix sdBetas = createMatrix(BetaR.rows, BetaR.cols);
+    Matrix sdAlpha = createMatrix(BetaR.rows, BetaR.cols);
+
+    bootstrap(&XR, &WR, &VR, &BetaR, &AlphaR, bootiter, maxiter, maxtime, ll_threshold, maxnewton, verbose, &elapsed,
+              &total_iter, &sdBetas, &sdAlpha);
+
+    // copy out final Beta, Alpha
+    Rcpp::NumericMatrix Rbeta(BetaR.rows, BetaR.cols);
+    std::memcpy(Rbeta.begin(), BetaR.data, sizeof(double) * BetaR.rows * BetaR.cols);
+
+    Rcpp::NumericMatrix Ralpha(AlphaR.rows, AlphaR.cols);
+    std::memcpy(Ralpha.begin(), AlphaR.data, sizeof(double) * AlphaR.rows * AlphaR.cols);
+
+    // clean up all C allocations
+    freeMatrix(&XR);
+    std::free(XR.data);
+    freeMatrix(&WR);
+    std::free(WR.data);
+    freeMatrix(&VR);
+    std::free(VR.data);
+    std::free(BetaR.data);
+    std::free(AlphaR.data);
+
+    // return everything
+    return Rcpp::List::create(Rcpp::_["beta"] = Rbeta, Rcpp::_["alpha"] = Ralpha);
 }

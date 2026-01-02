@@ -11,16 +11,6 @@ extern "C"
 #include <stdlib.h>
 
     /**
-     * @brief Transposes a Matrix.
-     *
-     * @param[in] src  Pointer to the input Matrix.
-     * @return Matrix  A new Matrix of size (src->cols x src->rows) containing the transpose.
-     *
-     * @note Caller is responsible for freeing the returned matrix via freeMatrix().
-     */
-    Matrix transposeMatrix(const Matrix *src);
-
-    /**
      * @brief Make an array of a constant value.
      *
      * Given a value, it fills a whole array with a constant value.
@@ -491,6 +481,15 @@ extern "C"
      * @return A new matrix merged by columns
      */
     Matrix mergeColumns(const Matrix *wmat, const int *boundaries, int numBoundaries);
+
+    /*
+     * @brief Checks if two matrices are equal
+     *
+     * @param[in] The first matrix to check
+     * @param[in] The second matrix to check
+     */
+    bool matricesAreEqual(Matrix *a, Matrix *b);
+
     /**
      * @brief Swaps two columns of a matrix in place.
      *
@@ -522,25 +521,42 @@ extern "C"
     void addRowOfNaN(Matrix *matrix, int rowIndex);
 
     /*
+     * @brief creates a matrix of integers
+     */
+    IntMatrix createMatrixInt(int rows, int cols);
+
+    /*
+     * @brief Receives a double matrix and returns a matrix of integers
+     */
+    IntMatrix copMatrixDI(const Matrix *orig);
+
+    IntMatrix copMatrixI(IntMatrix *original);
+
+    /*
+     * @brief Frees the memory allocated for an IntMatrix.
+     */
+    void freeMatrixInt(IntMatrix *m);
+
+    bool matricesAreEqualI(IntMatrix *a, IntMatrix *b);
+
+    void printMatrixInt(IntMatrix *matrix);
+
+    /**
+     * @brief Transposes a Matrix.
+     *
+     * @param[in] src  Pointer to the input Matrix.
+     * @return Matrix  A new Matrix of size (src->cols x src->rows) containing the transpose.
+     *
+     * @note Caller is responsible for freeing the returned matrix via freeMatrix().
+     */
+    Matrix transposeMatrix(const Matrix *src);
+
+    /*
      * @brief Multiplies two matrices.
      *
      * Calls BLAS under the hood to perform matrix multiplication.
      */
     Matrix matrixMultiplication(Matrix *m1, Matrix *m2);
-
-    /// Performs out = v (1×G) × M (G×N) using BLAS DGEMV in‐place.
-    /// - v: pointer to vector of length G (row vector)
-    /// - M: pointer to Matrix struct of size G×N
-    /// - out: pre-allocated array of length N for the result
-    void vectorMatrixMultiplication_inplace(const double *v, const Matrix *M,
-                                            double *out // length = M->cols
-    );
-
-    /*
-     * @brief Does a matrix dot product.
-     *
-     */
-    double matrixDotProduct(const double *x, const double *y, int n);
 
     /*
      * Solves a linear system of equations H * v = g using Cholesky decomposition.

@@ -126,7 +126,6 @@ bootstrap <- function(object = NULL,
     verbose <- if (!is.null(all_params$verbose)) all_params$verbose else FALSE
 
     # Call the algorithm from C
-    print("going in to the C call")
     resulting_values <- bootstrapC(
         as.matrix(object$X),
         as.matrix(object$W),

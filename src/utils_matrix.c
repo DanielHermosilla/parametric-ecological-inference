@@ -1,3 +1,25 @@
+/*
+Copyright (c) 2025 fastei team
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+*/
+
 #include "utils_matrix.h"
 #include <R.h>
 #include <R_ext/BLAS.h>
@@ -6,9 +28,6 @@
 #include <R_ext/RS.h> /* for R_Calloc/R_Free, F77_CALL */
 #include <Rinternals.h>
 #include <math.h>
-#ifdef _OPENMP
-#include <omp.h> // Parallelization
-#endif
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -31,66 +50,9 @@
 #define BLAS_INT int
 #endif
 
-/**
- * @brief Checks if the matrix is well defined
- *
- * Given a pointer to a matrix, it verifies if the matrix is well alocated and defined and throws an error if there's
- * something wrong.
- *
- * @param[in] m A pointer to the matrix
- *
- * @return void
- *
- * @note
- * - This will just throw errors, note that EXIT_FAILURE will dealocate memory
- *
- * @warning
- * - The pointer may be NULL.
- * - The dimensions may be negative.
- */
-
-void checkMatrix(const Matrix *m)
-{
-
-    // Validation, checks NULL pointer
-    if (!m || !m->data)
-    {
-        error("Matrix handling: A NULL pointer was handed as a matrix argument.\n");
-    }
-
-    // Checks dimensions
-    if (m->rows <= 0 || m->cols <= 0)
-    {
-        error("Matrix handling: Invalid matrix dimensions: rows=%d, cols=%d\n", m->rows, m->cols);
-    }
-}
-
-/**
- * @brief Transposes a Matrix.
- *
- * @param[in] src  Pointer to the input Matrix.
- * @return Matrix  A new Matrix of size (src->cols x src->rows) containing the transpose.
- *
- * @note Caller is responsible for freeing the returned matrix via freeMatrix().
- */
-Matrix transposeMatrix(const Matrix *src)
-{
-    checkMatrix(src);
-
-    // Allocate the transposed matrix
-    Matrix dst = createMatrix(src->cols, src->rows);
-
-    // Fill in transpose: dst[j,i] = src[i,j]
-    for (int i = 0; i < src->rows; ++i)
-    {
-        for (int j = 0; j < src->cols; ++j)
-        {
-            MATRIX_AT(dst, j, i) = MATRIX_AT_PTR(src, i, j);
-        }
-    }
-
-    return dst;
-}
+// ----------------------------------------------------------------------------
+// Utility functions
+// ----------------------------------------------------------------------------
 
 /**
  * @brief Make an array of a constant value.
@@ -133,6 +95,41 @@ void makeArray(double *array, int N, double value)
         array[i] = value;
     }
 }
+
+/**
+ * @brief Checks if the matrix is well defined
+ *
+ * Given a pointer to a matrix, it verifies if the matrix is well alocated and defined and throws an error if there's
+ * something wrong.
+ *
+ * @param[in] m A pointer to the matrix
+ *
+ * @return void
+ *
+ * @note
+ * - This will just throw errors, note that EXIT_FAILURE will dealocate memory
+ *
+ * @warning
+ * - The pointer may be NULL.
+ * - The dimensions may be negative.
+ */
+
+void checkMatrix(const Matrix *m)
+{
+
+    // Validation, checks NULL pointer
+    if (!m || !m->data)
+    {
+        error("Matrix handling: A NULL pointer was handed as a matrix argument.\n");
+    }
+
+    // Checks dimensions
+    if (m->rows <= 0 || m->cols <= 0)
+    {
+        error("Matrix handling: Invalid matrix dimensions: rows=%d, cols=%d\n", m->rows, m->cols);
+    }
+}
+
 /**
  * @brief Creates an empty dynamically allocated memory matrix of given dimensions.
  *
@@ -215,9 +212,9 @@ void printMatrix(const Matrix *matrix)
         Rprintf("| ");
         for (int j = 0; j < matrix->cols - 1; j++)
         {
-            Rprintf("%.3f\t", MATRIX_AT_PTR(matrix, i, j));
+            Rprintf("%4.3f\t", MATRIX_AT_PTR(matrix, i, j));
         }
-        Rprintf("%.3f", MATRIX_AT_PTR(matrix, i, matrix->cols - 1));
+        Rprintf("%4.3f", MATRIX_AT_PTR(matrix, i, matrix->cols - 1));
         Rprintf(" |\n");
     }
 }
@@ -467,6 +464,7 @@ bool convergeMatrix(const Matrix *matrixA, const Matrix *matrixB, const double c
 
     F77_CALL(dcopy)(&(size), matrixA->data, &incX, diff, &incY);
     F77_CALL(daxpy)(&(size), &alpha, matrixB->data, &incX, diff, &incY);
+
     for (int i = 0; i < size; i++)
     {
         // If there's a value whom convergence is greater than epsilon, the convergence
@@ -1270,6 +1268,24 @@ Matrix mergeColumns(const Matrix *wmat, const int *boundaries, int numBoundaries
     return newMat;
 }
 
+/*
+ * @brief Checks if two matrices are equal
+ *
+ * @param[in] The first matrix to check
+ * @param[in] The second matrix to check
+ */
+bool matricesAreEqual(Matrix *a, Matrix *b)
+{
+    checkMatrix(a);
+    checkMatrix(b);
+
+    if (a->rows != b->rows || a->cols != b->cols)
+        return false;
+
+    size_t bytes = a->rows * a->cols * sizeof(double);
+    return memcmp(a->data, b->data, bytes) == 0;
+}
+
 /**
  * @brief Swaps two columns of a matrix in place.
  *
@@ -1358,6 +1374,128 @@ void addRowOfNaN(Matrix *matrix, int rowIndex)
     freeMatrix(&temp);
 }
 
+/*
+ *
+ * Int Matrix functions
+ *
+ */
+
+IntMatrix createMatrixInt(int rows, int cols)
+{
+    if (rows <= 0 || cols <= 0)
+    {
+        error("Matrix handling: Invalid matrix dimensions: rows=%d, cols=%d\n", rows, cols);
+    }
+
+    IntMatrix m;
+    m.rows = rows;
+    m.cols = cols;
+
+    m.data = Calloc(rows * cols, int);
+
+    if (!m.data)
+    {
+        error("Matrix handling: Failed to allocate matrix data\n");
+    }
+
+    return m;
+}
+
+IntMatrix copMatrixDI(const Matrix *orig)
+{
+
+    IntMatrix copy = createMatrixInt(orig->rows, orig->cols);
+    int R = orig->rows, C = orig->cols;
+
+    for (int i = 0; i < R; i++)
+    {
+        for (int j = 0; j < C; j++)
+        {
+            double v = MATRIX_AT_PTR(orig, i, j);
+            copy.data[j * R + i] = (int)v; // truncate toward zero
+        }
+    }
+
+    return copy;
+}
+
+IntMatrix copMatrixI(IntMatrix *original)
+{
+    IntMatrix copy = createMatrixInt(original->rows, original->cols);
+
+    // Copy it with a memcpy
+    size_t total_elements = original->rows * original->cols;
+    memcpy(copy.data, original->data, total_elements * sizeof(int));
+
+    return copy;
+
+    return copy;
+}
+
+void freeMatrixInt(IntMatrix *m)
+{
+    // TODO: Implement a validation warning.
+    if (m != NULL && m->data != NULL)
+    {
+        Free(m->data);
+        m->data = NULL;
+    }
+    m->rows = 0;
+    m->cols = 0;
+}
+
+/*
+ * @brief Checks if two IntMatrices are equal.
+ */
+bool matricesAreEqualI(IntMatrix *a, IntMatrix *b)
+{
+    return memcmp(a->data, b->data, sizeof(int) * a->rows * a->cols) == 0;
+}
+
+void printMatrixInt(IntMatrix *matrix)
+{
+
+    Rprintf("Matrix (%dx%d):\n", matrix->rows, matrix->cols);
+
+    for (int i = 0; i < matrix->rows; i++)
+    {
+        Rprintf("| ");
+        for (int j = 0; j < matrix->cols - 1; j++)
+        {
+            Rprintf("%d\t", MATRIX_AT_PTR(matrix, i, j));
+        }
+        Rprintf("%df", MATRIX_AT_PTR(matrix, i, matrix->cols - 1));
+        Rprintf(" |\n");
+    }
+}
+
+/**
+ * @brief Transposes a Matrix.
+ *
+ * @param[in] src  Pointer to the input Matrix.
+ * @return Matrix  A new Matrix of size (src->cols x src->rows) containing the transpose.
+ *
+ * @note Caller is responsible for freeing the returned matrix via freeMatrix().
+ */
+Matrix transposeMatrix(const Matrix *src)
+{
+    checkMatrix(src);
+
+    // Allocate the transposed matrix
+    Matrix dst = createMatrix(src->cols, src->rows);
+
+    // Fill in transpose: dst[j,i] = src[i,j]
+    for (int i = 0; i < src->rows; ++i)
+    {
+        for (int j = 0; j < src->cols; ++j)
+        {
+            MATRIX_AT(dst, j, i) = MATRIX_AT_PTR(src, i, j);
+        }
+    }
+
+    return dst;
+}
+
 Matrix matrixMultiplication(Matrix *m1, Matrix *m2)
 {
     // 1) sanity checks
@@ -1396,14 +1534,6 @@ Matrix matrixMultiplication(Matrix *m1, Matrix *m2)
     return C;
 }
 
-double matrixDotProduct(const double *x, const double *y, int n)
-{
-    BLAS_INT N = (BLAS_INT)n;
-    BLAS_INT incx = 1;
-    BLAS_INT incy = 1;
-    return F77_CALL(ddot)(&N, x, &incx, y, &incy);
-}
-
 void solve_linear_system(int D, double *H, double *g, double *v)
 {
     for (int i = 0; i < D; i++)
@@ -1422,23 +1552,4 @@ void solve_linear_system(int D, double *H, double *g, double *v)
         error("DGESV failed with info = %d", (int)info);
 
     Free(ipiv);
-}
-
-void vectorMatrixMultiplication_inplace(const double *v, // length = G
-                                        const Matrix *M, // rows = G, cols = N
-                                        double *out      // length = N
-)
-{
-    // BLAS parameters
-    char trans = 'T'; // we want Mᵀ × vᵀ == v × M
-    BLAS_INT G = (BLAS_INT)M->rows;
-    BLAS_INT N = (BLAS_INT)M->cols;
-    double alpha = 1.0;
-    double beta = 0.0;
-    BLAS_INT lda = G; // leading dimension of M
-    BLAS_INT incx = 1;
-    BLAS_INT incy = 1;
-
-    // Call FORTRAN DGEMV: out <- alpha*Mᵀ·v + beta*out
-    F77_CALL(dgemv)(&trans, &G, &N, &alpha, M->data, &lda, v, &incx, &beta, out, &incy FCONE);
 }

@@ -39,6 +39,7 @@ typedef struct
     Matrix *prob;  // length B, each G x C
     Matrix S_bc;   // B x C
     Matrix *q_bgc; // length B, each G x C
+    Matrix VxA;    // B x (C-1)
     Matrix alpha;
     Matrix beta;
     Matrix grad_alpha; // (C-1) x A
@@ -73,6 +74,9 @@ void init_EMBuffers(EMBuffers *buf, int B, int G, int Cminus1, int A)
         buf->q_bgc[b] = createMatrix(G, buf->C);
     }
 
+    // Preallocate VxA
+    buf->VxA = createMatrix(B, Cminus1);
+
     // Gradients and Hessian
 
     buf->grad_alpha = createMatrix(Cminus1, A);
@@ -96,6 +100,7 @@ void free_EMBuffers(EMBuffers *buf)
     Free(buf->prob);
     Free(buf->q_bgc);
 
+    freeMatrix(&buf->VxA);
     freeMatrix(&buf->S_bc);
 
     freeMatrix(&buf->H);
@@ -148,8 +153,8 @@ void getProbability(EMBuffers *buf, Matrix *V, Matrix *alpha, Matrix *beta)
     freeMatrix(&VxA);
 }
 */
-// Compute and normalize buf->prob[b][g][c] = softmax_c( beta[g,c] + (V×αᵀ)[b,c] )
-// buf->C must be α->rows+1
+// Compute and normalize buf->prob[b][g][c] = softmax_c( beta[g,c] + (V\times \alpha^T)[b,c] )
+// buf->C must be \alpha->rows+1
 void getProbability(EMBuffers *buf,
                     Matrix *V,           // B×A
                     const Matrix *alpha, // (C-1)×A
@@ -160,9 +165,19 @@ void getProbability(EMBuffers *buf,
     int Cminus1 = alpha->rows;
     int C = buf->C; // = Cminus1+1
 
-    // 1) compute V × αᵀ
-    Matrix alphaT = transposeMatrix(alpha);
-    Matrix VxA = matrixMultiplication(V, &alphaT);
+    // 1) compute V × αᵀ into the preallocated buffer
+    char transA = 'N';
+    char transB = 'T';
+    double one = 1.0, zero = 0.0;
+    BLAS_INT m = B;
+    BLAS_INT n = Cminus1;
+    BLAS_INT k = V->cols;
+    BLAS_INT lda = V->rows;
+    BLAS_INT ldb = alpha->rows;
+    BLAS_INT ldc = buf->VxA.rows;
+
+    F77_CALL(dgemm)
+    (&transA, &transB, &m, &n, &k, &one, V->data, &lda, alpha->data, &ldb, &zero, buf->VxA.data, &ldc FCONE FCONE);
 
     // 2) exponentiate & normalize into buf->prob
     for (int b = 0; b < B; ++b)
@@ -173,7 +188,7 @@ void getProbability(EMBuffers *buf,
             // first Cminus1 candidates
             for (int c = 0; c < Cminus1; ++c)
             {
-                double u = MATRIX_AT_PTR(beta, g, c) + MATRIX_AT(VxA, b, c);
+                double u = MATRIX_AT_PTR(beta, g, c) + MATRIX_AT(buf->VxA, b, c);
                 double ex = exp(u);
                 MATRIX_AT(buf->prob[b], g, c) = ex;
                 sum += ex;
@@ -189,10 +204,6 @@ void getProbability(EMBuffers *buf,
             }
         }
     }
-
-    // 3) cleanup temporaries
-    freeMatrix(&alphaT);
-    freeMatrix(&VxA);
 }
 
 void E_step(Matrix *X, Matrix *W, Matrix *V, EMBuffers *buf)
@@ -240,7 +251,8 @@ void E_step(Matrix *X, Matrix *W, Matrix *V, EMBuffers *buf)
     }
 }
 
-double objective_function(Matrix *W, Matrix *V, EMBuffers *buf, const Matrix *alpha_eval, const Matrix *beta_eval)
+double objective_function(Matrix *W, Matrix *V, EMBuffers *buf, const Matrix *alpha_eval, const Matrix *beta_eval,
+                          const bool prob_valid)
 {
 
     int B = buf->B, G = buf->G, C = buf->C;
@@ -248,7 +260,8 @@ double objective_function(Matrix *W, Matrix *V, EMBuffers *buf, const Matrix *al
     double loss = 0.0;
 
     // --- Get probabilities
-    getProbability(buf, V, alpha_eval, beta_eval);
+    if (!prob_valid)
+        getProbability(buf, V, alpha_eval, beta_eval);
 
     // --- Get the dot product
     for (int b = 0; b < B; b++)
@@ -269,13 +282,15 @@ double objective_function(Matrix *W, Matrix *V, EMBuffers *buf, const Matrix *al
     return loss;
 }
 
-void compute_gradients(const Matrix *W, Matrix *V, EMBuffers *buf, const Matrix *alpha_eval, const Matrix *beta_eval)
+void compute_gradients(const Matrix *W, Matrix *V, EMBuffers *buf, const Matrix *alpha_eval, const Matrix *beta_eval,
+                       const bool prob_valid)
 {
 
     int B = buf->B, G = buf->G, Cminus1 = buf->C - 1, A = buf->A;
 
     // --- Get probabilities
-    getProbability(buf, V, alpha_eval, beta_eval);
+    if (!prob_valid)
+        getProbability(buf, V, alpha_eval, beta_eval);
 
     for (int g = 0; g < G; g++)
     {
@@ -316,9 +331,12 @@ void compute_gradients(const Matrix *W, Matrix *V, EMBuffers *buf, const Matrix 
     }
 }
 
-void compute_hessian(const Matrix *W, // B×G
-                     Matrix *V,       // B×A
-                     EMBuffers *buf)
+void compute_hessian(const Matrix *W, // B \times G
+                     Matrix *V,       // B \times A
+                     EMBuffers *buf,
+                     const Matrix *alpha_eval, // (C-1) \times A
+                     const Matrix *beta_eval,  // G \times (C-1)
+                     const bool prob_valid)
 {
 
     int B = buf->B, G = buf->G, Cm = buf->C - 1, A = buf->A, D = buf->D;
@@ -328,12 +346,13 @@ void compute_hessian(const Matrix *W, // B×G
     memset(buf->H.data, 0, D * D * sizeof(double));
 
     /* 2) compute p_bgc once */
-    getProbability(buf, V, &buf->alpha, &buf->beta);
+    if (!prob_valid)
+        getProbability(buf, V, alpha_eval, beta_eval);
 
     size_t n_iters = (size_t)B * G * Cm * Cm;
-#ifdef _OPENMP
-#pragma omp parallel for collapse(4) if (n_iters > 500) schedule(static)
-#endif
+    // #ifdef _OPENMP
+    // #pragma omp parallel for collapse(4) if (n_iters > 500) schedule(static)
+    // #endif
     for (int b = 0; b < B; b++)
     {
         for (int g = 0; g < G; g++)
@@ -388,8 +407,8 @@ void compute_hessian(const Matrix *W, // B×G
 }
 
 // ----- HELPER FUNCTION ----- //
-// Packs grad_alpha (C–1 x A, column‐major) followed by grad_beta (G x C–1, column‐major)
-// both in column‐major order, into the flat vector g[0..D-1].
+// Packs grad_alpha (C–1 x A, column‐major) followed by grad_beta (G x C–1, row‐major)
+// into the flat vector g[0..D-1] to match the Hessian indexing.
 static void pack_gradients(EMBuffers *buf)
 {
     int Cminus1 = buf->grad_alpha.rows;
@@ -406,11 +425,11 @@ static void pack_gradients(EMBuffers *buf)
         }
     }
 
-    // \beta block
-    for (int c = 0; c < Cminus1; c++)
-    { // --- For each candidate
-        for (int gi = 0; gi < G; gi++)
-        { // --- For each group
+    // \beta block (g-major / row-major)
+    for (int gi = 0; gi < G; gi++)
+    { // --- For each group
+        for (int c = 0; c < Cminus1; c++)
+        { // --- For each candidate
             buf->gvec[idx++] = MATRIX_AT(buf->grad_beta, gi, c);
         }
     }
@@ -433,18 +452,18 @@ static void unpack_step(EMBuffers *buf)
         }
     }
 
-    // \beta block
-    for (int c = 0; c < Cminus1; ++c)
-    { // --- For each candidate
-        for (int gi = 0; gi < G; ++gi)
-        { // --- For each group
+    // \beta block (g-major / row-major)
+    for (int gi = 0; gi < G; ++gi)
+    { // --- For each group
+        for (int c = 0; c < Cminus1; ++c)
+        { // --- For each candidate
             MATRIX_AT(buf->grad_beta, gi, c) = buf->vvec[idx++];
         }
     }
 }
 
-int Newton_damped(Matrix *W, // B×G weights
-                  Matrix *V, // B×A covariates
+int Newton_damped(Matrix *W, // B \times G weights
+                  Matrix *V, // B \times A covariates
                   EMBuffers *buf, double tol, int max_iter, double alpha_bs, double beta_bs)
 {
     int B = V->rows;
@@ -470,46 +489,23 @@ int Newton_damped(Matrix *W, // B×G weights
     {
         // ---- Evaluate loss, gradient, Hessian at the current points
         // Loss
-        double f0 = objective_function(W, V, buf, alpha, beta);
+        getProbability(buf, V, alpha, beta);
+        double f0 = objective_function(W, V, buf, alpha, beta, true);
 
         // Gradients
-        compute_gradients(W, V, buf, alpha, beta);
+        compute_gradients(W, V, buf, alpha, beta, true);
         pack_gradients(buf);
 
         // Hessian (prezero H)
-        size_t D2 = (size_t)D * (size_t)D;
-        memset(buf->H.data, 0, D2 * sizeof(double));
-        compute_hessian(W, V, buf);
+        compute_hessian(W, V, buf, alpha, beta, true);
 
-        // Damping of the hessian
-        double min_diag = DBL_MAX;
-        for (int i = 0; i < D; i++)
-        {
-            min_diag = fmin(min_diag, MATRIX_AT(buf->H, i, i));
-        }
-        // Choose a tiny epsilon
-        double eps = 1e-6 * (fabs(min_diag) + 1.0);
-        // If the smallest diagonal is below zero, shift by (–min_diag + \epsilon),
-        // otherwise just add \epsilon to make it strictly positive
-        double shift = (min_diag < 0.0 ? -min_diag + eps : eps);
-        for (int i = 0; i < D; i++)
-        {
-            MATRIX_AT(buf->H, i, i) += shift;
-        }
-        // --- Python‐style Hessian damping
-        // (1) compute eta
-        /*
-        const double tau = 0.5;
-        const double eta = tol; // since lambda_alpha + lambda_beta = 0
-
-        // 2) Find the maximum diagonal entry of H
+        // Hessian damping: H <- (1-eta) H + eta * max_diag * I
+        const double eta = tol;
         double max_diag = MATRIX_AT(buf->H, 0, 0);
         for (int i = 1; i < D; ++i)
         {
             max_diag = fmax(max_diag, MATRIX_AT(buf->H, i, i));
         }
-
-        // 3) Replace H ← (1−η)·H + η·max_diag·I
         for (int i = 0; i < D; ++i)
         {
             for (int j = 0; j < D; ++j)
@@ -517,22 +513,17 @@ int Newton_damped(Matrix *W, // B×G weights
                 double hij = MATRIX_AT(buf->H, i, j);
                 if (i == j)
                 {
-                    // blend diagonal toward max_diag
                     MATRIX_AT(buf->H, i, j) = (1.0 - eta) * hij + eta * max_diag;
                 }
                 else
                 {
-                    // shrink off‐diagonals
                     MATRIX_AT(buf->H, i, j) = (1.0 - eta) * hij;
                 }
             }
         }
-        */
-        // ---...--- //
 
         // Solve H v = -g, for approximating it with Taylor expansion
-        Matrix Hcopy = copMatrix(&buf->H);
-        solve_linear_system(D, Hcopy.data, buf->gvec, buf->vvec);
+        solve_linear_system(D, buf->H.data, buf->gvec, buf->vvec);
         for (int i = 0; i < D; i++)
         {
             buf->vvec[i] = -buf->vvec[i];
@@ -549,37 +540,41 @@ int Newton_damped(Matrix *W, // B×G weights
             break;
 
         // Armijo backtracking line search
+        Matrix *alpha_t = copMatrixPtr(alpha);
+        Matrix *beta_t = copMatrixPtr(beta);
+        size_t alpha_elems = alpha->rows * alpha->cols;
+        size_t beta_elems = beta->rows * beta->cols;
+        BLAS_INT inc = 1;
+        BLAS_INT alpha_n = (BLAS_INT)alpha_elems;
+        BLAS_INT beta_n = (BLAS_INT)beta_elems;
         double t = 1.0; // We start with t = 1
-        // compute g*v, the direction
+        const double t_min = 1e-10;
+        // compute grad(loss) * v (gvec stores -grad(loss))
         double gv = 0;
         for (int i = 0; i < D; i++)
-            gv += buf->gvec[i] * buf->vvec[i];
+            gv += -buf->gvec[i] * buf->vvec[i];
 
         while (1)
         {
             // Trial parameters
-            Matrix *alpha_t = copMatrixPtr(alpha);
-            Matrix *beta_t = copMatrixPtr(beta);
-            // alpha_t = alpha_t + t * dalpha
-            for (int i = 0; i < Cminus1; i++)
-                for (int j = 0; j < A; j++)
-                    MATRIX_AT_PTR(alpha_t, i, j) += t * MATRIX_AT(buf->grad_alpha, i, j);
-            // beta_t = beta_t + t * dbeta
-            for (int i = 0; i < G; i++)
-                for (int j = 0; j < Cminus1; j++)
-                    MATRIX_AT_PTR(beta_t, i, j) += t * MATRIX_AT(buf->grad_beta, i, j);
+            F77_CALL(dcopy)(&alpha_n, alpha->data, &inc, alpha_t->data, &inc);
+            F77_CALL(daxpy)(&alpha_n, &t, buf->grad_alpha.data, &inc, alpha_t->data, &inc);
+            F77_CALL(dcopy)(&beta_n, beta->data, &inc, beta_t->data, &inc);
+            F77_CALL(daxpy)(&beta_n, &t, buf->grad_beta.data, &inc, beta_t->data, &inc);
 
-            double f_trial = objective_function(W, V, buf, alpha_t, beta_t);
-            freeMatrix(alpha_t);
-            freeMatrix(beta_t);
+            double f_trial = objective_function(W, V, buf, alpha_t, beta_t, false);
             if (f_trial <= f0 + alpha_bs * t * gv)
             {
                 break;
             }
             t *= beta_bs;
-            if (t < 1e-8)
+            if (t < t_min)
                 break;
         }
+        if (t < t_min)
+            t = t_min;
+        freeMatrix(alpha_t);
+        freeMatrix(beta_t);
 
         // Update parameters. i.e, alpha and beta
         for (int i = 0; i < Cminus1; i++)
@@ -639,7 +634,7 @@ double compute_ll_multinomial(const Matrix *X, // BxC
         }
         total_ll += lgamma(xb + 1.0);
 
-        // data term \sum x_bc · log(p_bc)
+        // data term \sum x_bc \cdot log(p_bc)
         for (int c = 0; c < C; ++c)
         {
             double marg = 0;
@@ -659,12 +654,12 @@ double compute_ll_multinomial(const Matrix *X, // BxC
 
 void M_step(Matrix *X, Matrix *W, Matrix *V, EMBuffers *buf, const double tol, const int maxnewton, const bool verbose)
 {
-    int newton_iterations = Newton_damped(W, V, buf, tol, maxnewton, 0.01, 0.5);
+    int newton_iterations = Newton_damped(W, V, buf, tol, maxnewton, 0.5, 0.5);
 
-    if (verbose)
-    {
-        Rprintf("The newton algorithm was made in %d iterations\n", newton_iterations);
-    }
+    // if (verbose)
+    // {
+    //     Rprintf("The newton algorithm was made in %d iterations\n", newton_iterations - 1);
+    // }
 }
 
 Matrix *EM_Algorithm(Matrix *X, Matrix *W, Matrix *V, Matrix *beta, Matrix *alpha, const int maxiter,
@@ -701,9 +696,13 @@ Matrix *EM_Algorithm(Matrix *X, Matrix *W, Matrix *V, Matrix *beta, Matrix *alph
         if (verbose)
         {
             Rprintf("Iteration %d: log-likelihood = %.4f\n", iter + 1, new_ll);
+            Rprintf("Probability ");
+            printMatrix(&buf.prob[0]);
         }
 
         // Check for convergence
+        if (current_ll >= new_ll)
+            Rprintf("Log-likelihood did not increase: %.6f -> %.6f\n", current_ll, new_ll);
         if (fabs(new_ll - current_ll) <= ll_threshold || current_ll >= new_ll)
         {
             if (verbose)
